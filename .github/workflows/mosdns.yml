@@ -1,0 +1,62 @@
+name: Build MosDNS .run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Prepare Workspace
+        run: |
+          mkdir -p mosdns-build
+          git clone https://github.com/megastep/makeself.git
+
+      - name: Download Files
+        run: |
+          # 1. 自动从 sbwml/luci-app-mosdns 获取最新 ipk
+          echo "正在下载 MosDNS 插件..."
+          # 抓取包含 luci-app-mosdns 的 ipk 下载链接
+          IPK_URL=$(curl -s https://api.github.com/repos/sbwml/luci-app-mosdns/releases/latest | jq -r '.assets[] | select(.name | contains("luci-app-mosdns")) | .browser_download_url' | head -n 1)
+          wget -q "$IPK_URL" -P mosdns-build/
+          
+          # 2. 下载 MosDNS 核心 (x86_64)
+          # sbwml 的仓库通常包含核心，如果需要额外下载核心，可替换此处链接
+          echo "正在下载 MosDNS 核心..."
+          # 获取官方最新核心
+          CORE_URL=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.assets[] | select(.name | contains("linux-amd64")) | .browser_download_url' | head -n 1)
+          wget -q "$CORE_URL" -O mosdns-core.tar.gz
+          tar -zxvf mosdns-core.tar.gz -C mosdns-build/
+          
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > mosdns-build/install.sh
+          #!/bin/sh
+          echo "===> 安装 MosDNS..."
+          opkg install --force-depends luci-app-mosdns*.ipk
+          
+          # 部署核心文件
+          mkdir -p /usr/bin/mosdns
+          cp mosdns /usr/bin/mosdns/
+          chmod +x /usr/bin/mosdns/mosdns
+          
+          echo "===> 安装完成。"
+          EOF
+          chmod +x mosdns-build/install.sh
+
+      - name: Create .run package
+        run: |
+          ./makeself/makeself.sh mosdns-build/ MosDNS_x86_64.run "MosDNS Installer" ./install.sh
+
+      - name: Set Tag Name
+        run: echo "TAG_NAME=MosDNS-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: "MosDNS Bundle ${{ env.TAG_NAME }}"
+          files: MosDNS_x86_64.run
