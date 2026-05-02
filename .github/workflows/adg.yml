@@ -1,4 +1,4 @@
-name: Build iStore Compatible AdG
+name: Build and Release IPK
 
 on:
   workflow_dispatch:
@@ -17,14 +17,12 @@ jobs:
 
       - name: Download Files
         run: |
-          # 1. 下载核心
           CORE_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
           wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${CORE_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
           mkdir -p temp_core
           tar -zxvf core.tar.gz -C temp_core
           find temp_core -type f -name "AdGuardHome" -exec cp {} adg-build/data/usr/bin/AdGuardHome/ \;
           
-          # 2. 下载插件
           REPO="rufengsuixing/luci-app-adguardhome"
           URLS=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url')
           for url in $URLS; do
@@ -33,17 +31,14 @@ jobs:
 
       - name: Create IPK Control
         run: |
-          # 创建 IPK 必须的 control 文件
           cat << 'EOF' > adg-build/control/control
           Package: adguardhome-bundle
           Version: 1.0-1
           Architecture: x86_64
           Maintainer: User
-          Depends: libc, luci-app-adguardhome, luci-i18n-adguardhome-zh-cn
+          Depends: luci-app-adguardhome, luci-i18n-adguardhome-zh-cn
           Description: AdGuardHome Bundle for iStore
           EOF
-          
-          # 创建安装脚本
           cat << 'EOF' > adg-build/control/postinst
           #!/bin/sh
           chmod +x /usr/bin/AdGuardHome/AdGuardHome
@@ -53,7 +48,6 @@ jobs:
 
       - name: Package to IPK
         run: |
-          # 将文件打包成 ipk 格式 (其实就是 tar 压缩包)
           cd adg-build
           tar -czf control.tar.gz -C control .
           tar -czf data.tar.gz -C data .
@@ -61,8 +55,13 @@ jobs:
           tar -czf adguardhome_bundle_x86_64.ipk control.tar.gz data.tar.gz debian-binary
           mv adguardhome_bundle_x86_64.ipk ../
 
+      # 关键步骤：先生成 tag 环境变量
+      - name: Set Tag Name
+        id: vars
+        run: echo "tag_name=v$(date +%Y.%m.%d-%H%M)" >> $GITHUB_ENV
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v$(date +%Y.%m.%d)
+          tag_name: ${{ env.tag_name }}
           files: adguardhome_bundle_x86_64.ipk
