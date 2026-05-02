@@ -1,0 +1,52 @@
+name: Build AdG x86_64 Offline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare Workspace
+        run: mkdir -p adg-build
+
+      - name: Download Files
+        run: |
+          # 1. 获取并下载 AdGuardHome x86_64 核心
+          CORE_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
+          wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${CORE_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
+          tar -zxvf core.tar.gz -C adg-build --strip-components=1 AdGuardHome/AdGuardHome
+          
+          # 2. 下载 luci-app 和中文包
+          # 使用 rufengsuixing 的源 (它是目前适配最广泛的)
+          BASE_URL="https://github.com/rufengsuixing/luci-app-adguardhome/releases/latest/download"
+          wget $BASE_URL/luci-app-adguardhome_all.ipk -P adg-build/
+          wget $BASE_URL/luci-i18n-adguardhome-zh-cn_all.ipk -P adg-build/
+
+      - name: Create Installer
+        run: |
+          cat << 'EOF' > adg-build/install.sh
+          #!/bin/sh
+          # 安装 ipk
+          opkg install *.ipk
+          
+          # 部署核心二进制文件
+          # 注意：这是 OpenWrt 插件通常查找的路径
+          mkdir -p /usr/bin/AdGuardHome
+          mv AdGuardHome /usr/bin/AdGuardHome/AdGuardHome
+          chmod +x /usr/bin/AdGuardHome/AdGuardHome
+          
+          echo "安装完成，请访问 OpenWrt 后台服务栏配置。"
+          EOF
+          chmod +x adg-build/install.sh
+
+      - name: Package
+        run: |
+          # 打包为 .run 文件
+          tar -zcvf adguardhome_x86_64_offline.run -C adg-build .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: adguardhome-x86_64
+          path: adguardhome_x86_64_offline.run
