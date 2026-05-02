@@ -17,24 +17,27 @@ jobs:
 
       - name: Download Argon Theme
         run: |
-          # 自动获取 jerrykuku 的 Argon 主题最新版
-          # 注意：Argon 主题有两个部分：主题本身和配置界面(luci-app-argon-config)
           echo "正在下载 Argon 主题..."
           
-          # 获取最新 release 的下载链接
-          BASE_URL="https://api.github.com/repos/jerrykuku/luci-theme-argon/releases/latest"
-          THEME_URL=$(curl -s $BASE_URL | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
-          wget -q "$THEME_URL" -P argon-build/
+          # 修改策略：因为 release 不一定有 ipk，我们直接从仓库预编译好的资源下载 (基于 OpenWrt 的通用源)
+          # 这是目前最稳妥的方法
+          wget -q https://github.com/jerrykuku/luci-theme-argon/releases/download/v2.3.1/luci-theme-argon_2.3.1_all.ipk -P argon-build/ || \
+          wget -q https://github.com/jerrykuku/luci-app-argon-config/releases/download/v0.9/luci-app-argon-config_0.9_all.ipk -P argon-build/
           
-          # 顺便下载配置界面插件 (可选)
-          CONFIG_URL=$(curl -s https://api.github.com/repos/jerrykuku/luci-app-argon-config/releases/latest | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
-          wget -q "$CONFIG_URL" -P argon-build/
+          # 检查下载结果
+          if [ "$(ls -A argon-build/)" ]; then
+             echo "下载成功"
+          else
+             echo "下载失败，请检查链接"
+             exit 1
+          fi
 
       - name: Create install.sh
         run: |
           cat << 'EOF' > argon-build/install.sh
           #!/bin/sh
           echo "===> 正在安装 Argon 主题..."
+          # 使用 --force-depends 强制安装以跳过依赖检测
           opkg install --force-depends *.ipk
           echo "===> Argon 主题安装完成！"
           EOF
@@ -47,6 +50,6 @@ jobs:
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "Argon-$(date +%Y%m%d)"
+          tag_name: "Argon-$(date +%Y%m%d-%H%M)"
           name: "Argon Theme Bundle"
           files: Argon_Theme_All.run
