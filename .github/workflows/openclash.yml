@@ -17,18 +17,16 @@ jobs:
 
       - name: Download Files
         run: |
-          # 1. 自动获取并下载最新的 luci-app-openclash
+          # 1. 使用直接的下载链接下载最新的 OpenClash ipk (使用代理加速以防 8 号错误)
           echo "正在下载 OpenClash 插件..."
-          # 获取 API 响应，并提取第一个符合 .ipk 结尾的资源链接
-          OC_URL=$(curl -sL https://api.github.com/repos/vernesong/OpenClash/releases/latest | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
-          
-          # 使用 --retry 选项增强网络稳定性
-          wget -q --retry-connrefused --waitretry=3 --timeout=30 -O openclash-build/openclash.ipk "$OC_URL"
+          wget -q -O openclash-build/openclash.ipk https://github.com/vernesong/OpenClash/releases/latest/download/luci-app-openclash_all.ipk
           
           # 2. 下载 Clash Meta 核心 (x86_64 兼容版本)
           echo "正在下载 Clash Meta 核心..."
-          CORE_URL="https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz"
-          wget -q --retry-connrefused --waitretry=3 --timeout=30 "$CORE_URL" -O core.gz
+          # 使用 ghproxy 加速下载
+          wget -q -O core.gz https://ghproxy.com/https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz || \
+          wget -q -O core.gz https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz
+          
           gunzip core.gz
           mv core openclash-build/clash
           chmod +x openclash-build/clash
@@ -38,14 +36,10 @@ jobs:
           cat << 'EOF' > openclash-build/install.sh
           #!/bin/sh
           echo "===> 安装 OpenClash..."
-          # 这里指定安装特定的 ipk 文件，避免通配符导致的混淆
           opkg install --force-depends openclash.ipk
-          
-          echo "===> 预置 Clash 核心..."
           mkdir -p /etc/openclash/core
           cp clash /etc/openclash/core/clash
           chmod +x /etc/openclash/core/clash
-          
           echo "===> 安装完成。"
           EOF
           chmod +x openclash-build/install.sh
