@@ -27,12 +27,22 @@ jobs:
           chmod +x shell/momo.sh
           ./shell/momo.sh
 
-      - name: Copy install.sh
+      - name: Validate packages and prepare installer
         run: |
           chmod +x shell/momo-install.sh
-          cp shell/momo-install.sh x86_64/install.sh
-          cp shell/momo-install.sh aarch64_generic/install.sh
-          cp shell/momo-install.sh aarch64_cortex-a53/install.sh
+          for PLATFORM in x86_64 aarch64_generic aarch64_cortex-a53; do
+            echo "检查平台包内容: $PLATFORM"
+            ls -1 "$PLATFORM"/*.ipk
+
+            for REQUIRED in momo luci-app-momo; do
+              if ! find "$PLATFORM" -maxdepth 1 -type f -name "${REQUIRED}_*.ipk" | grep -q .; then
+                echo "缺少关键安装包: $PLATFORM/${REQUIRED}_*.ipk"
+                exit 1
+              fi
+            done
+
+            cp shell/momo-install.sh "$PLATFORM/install.sh"
+          done
 
       - name: Extract version and pack
         id: pack
