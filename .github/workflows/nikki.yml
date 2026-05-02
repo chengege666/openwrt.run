@@ -27,12 +27,98 @@ jobs:
           chmod +x shell/nikki.sh
           ./shell/nikki.sh
 
-      - name: Copy install.sh
+      - name: Validate packages and prepare installer
         run: |
+          set -eu
           chmod +x shell/nikki-install.sh
-          cp shell/nikki-install.sh x86_64/install.sh
-          cp shell/nikki-install.sh aarch64_generic/install.sh
-          cp shell/nikki-install.sh aarch64_cortex-a53/install.sh
+
+          for PLATFORM in x86_64 aarch64_generic aarch64_cortex-a53; do
+            echo "检查平台包内容: $PLATFORM"
+            ls -1 "$PLATFORM"/*.ipk
+
+            for REQUIRED in mihomo-meta nikki luci-app-nikki; do
+              if ! find "$PLATFORM" -maxdepth 1 -type f -name "${REQUIRED}_*.ipk" | grep -q .; then
+                echo "缺少关键安装包: $PLATFORM/${REQUIRED}_*.ipk"
+                exit 1
+              fi
+            done
+
+            cp shell/nikki-install.sh "$PLATFORM/install.sh"
+
+            python3 - "$PLATFORM/install.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+
+old_install = """log "正在安装本地 ipk 包..."
+for pkg_file in "$SCRIPT_DIR"/*.ipk; do
+    install_local_ipk "$pkg_file" || echo "警告：包 $(basename "$pkg_file") 安装未完全成功，继续下一个。"
+done
+"""
+
+new_install = """log "正在安装本地 ipk 包..."
+for pkg_pattern in mihomo-meta nikki luci-app-nikki; do
+    found=0
+    for pkg_file in "$SCRIPT_DIR"/${pkg_pattern}_*.ipk; do
+        [ -f "$pkg_file" ] || continue
+        found=1
+        install_local_ipk "$pkg_file" || echo "警告：包 $(basename "$pkg_file") 安装未完全成功，继续下一个。"
+    done
+    [ "$found" -eq 1 ] || fail "缺少关键安装包: ${pkg_pattern}_*.ipk"
+done
+
+for pkg_file in "$SCRIPT_DIR"/*.ipk; do
+    base_name="$(basename "$pkg_file")"
+    case "$base_name" in
+        mihomo-meta_*|nikki_*|luci-app-nikki_*)
+            continue
+            ;;
+    esac
+    install_local_ipk "$pkg_file" || echo "警告：包 $(basename "$pkg_file") 安装未完全成功，继续下一个。"
+done
+"""
+
+old_verify = """log "验证安装结果..."
+INSTALL_FAIL=0
+for pkg_pattern in mihomo-meta nikki luci-app-nikki; do
+    if opkg list-installed | grep -q "^$pkg_pattern"; then
+        log "已检测到: $pkg_pattern"
+    else
+        echo "警告：未检测到 $pkg_pattern，可能存在兼容性问题。"
+    fi
+done
+
+if ! opkg list-installed | grep -q "^luci-app-nikki"; then
+    echo "警告：luci-app-nikki 未检测到，请手动检查安装状态。"
+fi
+"""
+
+new_verify = """log "验证安装结果..."
+INSTALL_FAIL=0
+for pkg_pattern in mihomo-meta nikki luci-app-nikki; do
+    if opkg list-installed | grep -q "^$pkg_pattern"; then
+        log "已检测到: $pkg_pattern"
+    else
+        echo "错误：未检测到 $pkg_pattern，安装失败。"
+        INSTALL_FAIL=1
+    fi
+done
+
+[ "$INSTALL_FAIL" -eq 0 ] || fail "Nikki 关键组件未全部安装成功。"
+"""
+
+if old_install not in text:
+    raise SystemExit("install block not found")
+if old_verify not in text:
+    raise SystemExit("verify block not found")
+
+text = text.replace(old_install, new_install)
+text = text.replace(old_verify, new_verify)
+path.write_text(text)
+PY
+          done
 
       - name: Extract version and pack
         id: pack
