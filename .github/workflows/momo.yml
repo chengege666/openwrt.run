@@ -1,0 +1,64 @@
+#=================================================
+# https://github.com/nikkinikki-org/OpenWrt-momo
+# Description: Build Momo .run files using GitHub Actions
+# Lisence: MIT
+#=================================================
+name: Make Momo run files
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  make-run:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install makeself
+        run: sudo apt-get update && sudo apt-get install -y makeself curl
+
+      - name: Download Momo packages
+        run: |
+          chmod +x shell/momo.sh
+          ./shell/momo.sh
+
+      - name: Copy install.sh
+        run: |
+          chmod +x shell/momo-install.sh
+          cp shell/momo-install.sh x86_64/install.sh
+          cp shell/momo-install.sh aarch64_generic/install.sh
+          cp shell/momo-install.sh aarch64_cortex-a53/install.sh
+
+      - name: Extract version and pack
+        id: pack
+        run: |
+          mkdir -p output
+
+          APP_IPK="$(ls aarch64_generic/luci-app-momo_*.ipk | head -n 1)"
+          VERSION="$(basename "$APP_IPK" | sed -n 's/^luci-app-momo_\(.*\)_all\.ipk$/\1/p')"
+
+          if [ -z "$VERSION" ]; then
+            echo "无法提取版本号"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "$VERSION"
+
+          for PLATFORM in x86_64 aarch64_generic aarch64_cortex-a53; do
+            makeself "$PLATFORM" "output/luci-app-momo-${VERSION}_${PLATFORM}.run" \
+              "momo ${PLATFORM} Installer v${VERSION}" ./install.sh
+          done
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "momo-${{ steps.pack.outputs.version }}"
+          name: "momo-${{ steps.pack.outputs.version }}"
+          body_path: ${{ github.workspace }}/info/momo.md
+          files: output/*.run
