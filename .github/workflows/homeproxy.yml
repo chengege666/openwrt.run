@@ -15,21 +15,30 @@ jobs:
           mkdir -p homeproxy_pkg
           git clone https://github.com/megastep/makeself.git
 
-      - name: Fetch Latest Release
+      - name: Fetch Package Info
         run: |
-          RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/douglarek/luci-app-homeproxy/releases/latest)"
-          TAG_NAME="$(echo "$RELEASE_JSON" | jq -r '.tag_name')"
-          IPK_URL="$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("^luci-app-homeproxy_.*_all\\.ipk$")) | .browser_download_url' | head -n 1)"
+          PACKAGE_FEED_URL="https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9"
+          INDEX_HTML="$(curl -fsSL "$PACKAGE_FEED_URL/")"
+          HOMEPROXY_FILE="$(echo "$INDEX_HTML" | grep -oE 'luci-app-homeproxy_[^"]*_all\.ipk' | sort -V | tail -n 1)"
+          SINGBOX_FILE="$(echo "$INDEX_HTML" | grep -oE 'sing-box_[^"]*_x86_64\.ipk' | sort -V | tail -n 1)"
 
-          [ -n "$TAG_NAME" ] && [ "$TAG_NAME" != "null" ] || { echo "错误：获取 HomeProxy 最新版本失败。"; exit 1; }
-          [ -n "$IPK_URL" ] && [ "$IPK_URL" != "null" ] || { echo "错误：未找到 HomeProxy 的 all.ipk 发布资产。"; exit 1; }
+          [ -n "$HOMEPROXY_FILE" ] || { echo "错误：在 $PACKAGE_FEED_URL 中未找到 luci-app-homeproxy 安装包。"; exit 1; }
+          [ -n "$SINGBOX_FILE" ] || { echo "错误：在 $PACKAGE_FEED_URL 中未找到 sing-box 安装包。"; exit 1; }
 
+          TAG_NAME="${HOMEPROXY_FILE#luci-app-homeproxy_}"
+          TAG_NAME="${TAG_NAME%_all.ipk}"
+          HOMEPROXY_URL="$PACKAGE_FEED_URL/$HOMEPROXY_FILE"
+          SINGBOX_URL="$PACKAGE_FEED_URL/$SINGBOX_FILE"
+
+          echo "PACKAGE_FEED_URL=$PACKAGE_FEED_URL" >> "$GITHUB_ENV"
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
-          echo "IPK_URL=$IPK_URL" >> "$GITHUB_ENV"
+          echo "HOMEPROXY_URL=$HOMEPROXY_URL" >> "$GITHUB_ENV"
+          echo "SINGBOX_URL=$SINGBOX_URL" >> "$GITHUB_ENV"
           echo "最新版本: $TAG_NAME"
-          echo "下载地址: $IPK_URL"
+          echo "HomeProxy: $HOMEPROXY_URL"
+          echo "sing-box: $SINGBOX_URL"
 
-      - name: Download HomeProxy Package
+      - name: Download HomeProxy Packages
         run: |
           safe_download() {
             local url="$1"
@@ -41,7 +50,8 @@ jobs:
             test -s "$output"
           }
 
-          safe_download "$IPK_URL" "homeproxy_pkg/$(basename "$IPK_URL")"
+          safe_download "$HOMEPROXY_URL" "homeproxy_pkg/$(basename "$HOMEPROXY_URL")"
+          safe_download "$SINGBOX_URL" "homeproxy_pkg/$(basename "$SINGBOX_URL")"
           ls -lh homeproxy_pkg/
 
       - name: Create install.sh
