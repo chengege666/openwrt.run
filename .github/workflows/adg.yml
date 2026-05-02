@@ -10,41 +10,69 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Prepare Workspace
         run: |
           mkdir -p adg-x86_64
+          # 克隆 makeself 工具，用于制作真正的 .run 自解压格式
           git clone https://github.com/megastep/makeself.git
+
+      - name: Fetch Latest Release Tag
+        run: |
+          # 获取 AdGuardHome 官方最新的版本号
+          LATEST_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r '.tag_name')
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+          echo "最新核心版本为: $LATEST_TAG"
 
       - name: Download Files
         run: |
-          # 获取 AdGuardHome 核心
-          LATEST_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
-          wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${LATEST_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
-          tar -zxvf core.tar.gz -C adg-x86_64 --strip-components=1 AdGuardHome/AdGuardHome
+          # 1. 下载 AdGuardHome x86_64 核心
+          wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${{ env.LATEST_TAG }}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
           
-          # 下载插件 (使用稳定版链接)
+          # 2. 智能解压
+          mkdir -p temp_core
+          tar -zxvf core.tar.gz -C temp_core
+          
+          # 3. 使用 find 智能定位二进制文件，防范官方压缩包改目录导致的报错
+          find temp_core -type f -name "AdGuardHome" -exec cp {} adg-x86_64/ \;
+          
+          # 4. 下载指定版本好用的 luci-app-adguardhome-all.ipk
           wget https://github.com/wukongdaily/RunFilesBuilder/releases/download/AdGuardHome_v0.107.55/luci-app-adguardhome-all.ipk -P adg-x86_64/
 
       - name: Create install.sh
         run: |
+          # 制作将在 OpenWrt 本地执行的安装脚本
           cat << 'EOF' > adg-x86_64/install.sh
           #!/bin/sh
-          echo "Installing IPK..."
-          opkg install *.ipk
-          echo "Installing Core..."
+          echo "===> 正在安装界面与语言包..."
+          # 强制安装，防止依赖报错
+          opkg install --force-depends *.ipk
+          
+          echo "===> 正在部署 AdGuardHome 核心..."
           mkdir -p /usr/bin/AdGuardHome
-          mv AdGuardHome /usr/bin/AdGuardHome/
+          # 确保把解压出来的核心文件放到正确路径
+          [ -f "AdGuardHome" ] && cp AdGuardHome /usr/bin/AdGuardHome/AdGuardHome
           chmod +x /usr/bin/AdGuardHome/AdGuardHome
-          echo "Done."
+          
+          echo "===> AdGuardHome 安装完成！"
           EOF
           chmod +x adg-x86_64/install.sh
 
-      - name: Create .run file
+      - name: Create self-extracting .run package
         run: |
-          ./makeself/makeself.sh adg-x86_64/ AdGuardHome_x86_64.run "AdGuardHome Installer" ./install.sh
+          # 使用 makeself 将 adg-x86_64 文件夹打包为 .run 格式，启动脚本为 ./install.sh
+          ./makeself/makeself.sh adg-x86_64/ AdGuardHome_${{ env.LATEST_TAG }}_x86_64.run "AdGuardHome by GitHub Actions" ./install.sh
 
-      - name: Release
+      - name: Upload run file as release asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-$(date +%Y%m%d-%H%M)
-          files: AdGuardHome_x86_64.run
+          tag_name: "Build_${{ env.LATEST_TAG }}"
+          name: "AdGuardHome-${{ env.LATEST_TAG }}"
+          files: AdGuardHome_${{ env.LATEST_TAG }}_x86_64.run
+          body: |
+            ### 自动化构建 AdGuardHome 离线安装包
+            - 核心版本: ${{ env.LATEST_TAG }}
+            - 架构: x86_64
+            - 格式: .run (自解压脚本，由 makeself 打包)
