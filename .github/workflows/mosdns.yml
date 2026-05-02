@@ -17,31 +17,33 @@ jobs:
 
       - name: Download Files
         run: |
-          # 1. 直接从 GitHub Release 下载预编译好的 IPK
-          echo "正在下载 MosDNS 插件..."
-          # 强制锁定下载路径，避开任何查找逻辑
-          wget -q -O mosdns-build/luci-app-mosdns.ipk https://github.com/sbwml/luci-app-mosdns/releases/latest/download/luci-app-mosdns_all.ipk || \
-          echo "无法通过 Release 下载，请确保该仓库有最新的 Release 文件"
-
-          # 2. 下载 MosDNS 核心
-          echo "正在下载 MosDNS 核心..."
-          CORE_URL=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.assets[] | select(.name | contains("linux-amd64")) | .browser_download_url' | head -n 1)
-          wget -q "$CORE_URL" -O mosdns-core.tar.gz
-          tar -zxvf mosdns-core.tar.gz -C mosdns-build/
-          # 确保文件名统一
-          [ -f "mosdns-build/mosdns" ] || mv mosdns-build/mosdns-v* mosdns-build/mosdns 2>/dev/null || true
+          # 1. 下载 sbwml 的 mosdns 压缩包
+          echo "正在下载 MosDNS 压缩包..."
+          # 自动获取最新发布的 tar.gz 链接
+          URL=$(curl -s https://api.github.com/repos/sbwml/luci-app-mosdns/releases/latest | jq -r '.assets[] | select(.name | contains("x86_64-openwrt-24.10.tar.gz")) | .browser_download_url' | head -n 1)
+          wget -q "$URL" -O mosdns.tar.gz
+          
+          # 2. 解压到构建目录
+          tar -zxvf mosdns.tar.gz -C mosdns-build/
+          # 如果解压后有多级目录，将其移动到顶层
+          mv mosdns-build/usr/bin/mosdns mosdns-build/mosdns
+          mv mosdns-build/usr/lib/lua/luci/controller/mosdns.lua mosdns-build/mosdns.lua 2>/dev/null || true
 
       - name: Create install.sh
         run: |
           cat << 'EOF' > mosdns-build/install.sh
           #!/bin/sh
-          echo "===> 安装 MosDNS..."
-          opkg install --force-depends *.ipk
-          
+          echo "===> 部署 MosDNS..."
+          # 将解压后的文件同步到系统目录
           mkdir -p /usr/bin/mosdns
-          cp mosdns /usr/bin/mosdns/mosdns
+          cp mosdns /usr/bin/mosdns/
           chmod +x /usr/bin/mosdns/mosdns
-          echo "===> 安装完成。"
+          
+          # 如果有 luci 界面文件，也需要放置到对应目录 (这里是一个通用的部署逻辑)
+          mkdir -p /usr/lib/lua/luci/controller/
+          [ -f "mosdns.lua" ] && cp mosdns.lua /usr/lib/lua/luci/controller/
+          
+          echo "===> 部署完成。"
           EOF
           chmod +x mosdns-build/install.sh
 
@@ -49,12 +51,8 @@ jobs:
         run: |
           ./makeself/makeself.sh mosdns-build/ MosDNS_x86_64.run "MosDNS Installer" ./install.sh
 
-      - name: Set Tag Name
-        run: echo "TAG_NAME=MosDNS-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
-
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG_NAME }}
-          name: "MosDNS Bundle ${{ env.TAG_NAME }}"
+          tag_name: "MosDNS-$(date +%Y%m%d-%H%M)"
           files: MosDNS_x86_64.run
