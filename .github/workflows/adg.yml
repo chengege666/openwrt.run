@@ -1,4 +1,4 @@
-name: Build AdG x86_64 .run
+name: Build AdGuardHome .run
 
 on:
   workflow_dispatch:
@@ -8,45 +8,43 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Prepare Workspace
-        run: mkdir -p adg-build
+        run: |
+          mkdir -p adg-x86_64
+          git clone https://github.com/megastep/makeself.git
 
       - name: Download Files
         run: |
-          CORE_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
-          wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${CORE_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
-          mkdir -p temp_core
-          tar -zxvf core.tar.gz -C temp_core
-          find temp_core -type f -name "AdGuardHome" -exec cp {} adg-build/ \;
+          # 获取 AdGuardHome 核心
+          LATEST_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
+          wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${LATEST_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
+          tar -zxvf core.tar.gz -C adg-x86_64 --strip-components=1 AdGuardHome/AdGuardHome
           
-          REPO="rufengsuixing/luci-app-adguardhome"
-          URLS=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url')
-          for url in $URLS; do
-            wget -q "$url" -P adg-build/
-          done
+          # 下载插件 (使用稳定版链接)
+          wget https://github.com/wukongdaily/RunFilesBuilder/releases/download/AdGuardHome_v0.107.55/luci-app-adguardhome-all.ipk -P adg-x86_64/
 
       - name: Create install.sh
         run: |
-          cat << 'EOF' > adg-build/install.sh
+          cat << 'EOF' > adg-x86_64/install.sh
           #!/bin/sh
-          echo "--- 正在安装 AdGuardHome (x86_64) ---"
-          # 使用 --force-depends 忽略依赖检查 (关键修复)
-          opkg install --force-depends *.ipk
+          echo "Installing IPK..."
+          opkg install *.ipk
+          echo "Installing Core..."
           mkdir -p /usr/bin/AdGuardHome
-          mv AdGuardHome /usr/bin/AdGuardHome/AdGuardHome
+          mv AdGuardHome /usr/bin/AdGuardHome/
           chmod +x /usr/bin/AdGuardHome/AdGuardHome
-          echo "--- 安装完成 ---"
+          echo "Done."
           EOF
-          chmod +x adg-build/install.sh
+          chmod +x adg-x86_64/install.sh
 
-      - name: Package
+      - name: Create .run file
         run: |
-          tar -zcvf adguardhome_x86_64.run -C adg-build .
+          ./makeself/makeself.sh adg-x86_64/ AdGuardHome_x86_64.run "AdGuardHome Installer" ./install.sh
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v$(date +%Y.%m.%d-%H%M)
-          files: adguardhome_x86_64.run
+          tag_name: build-$(date +%Y%m%d-%H%M)
+          files: AdGuardHome_x86_64.run
