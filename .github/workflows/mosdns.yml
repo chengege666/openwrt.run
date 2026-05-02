@@ -15,30 +15,33 @@ jobs:
           mkdir -p mosdns-build
           git clone https://github.com/megastep/makeself.git
 
+      - name: Checkout MosDNS Repository
+        uses: actions/checkout@v4
+        with:
+          repository: sbwml/luci-app-mosdns
+          path: mosdns-source
+
       - name: Download Files
         run: |
-          # 1. 自动从 sbwml/luci-app-mosdns 获取最新 ipk
-          echo "正在下载 MosDNS 插件..."
-          # 抓取包含 luci-app-mosdns 的 ipk 下载链接
-          IPK_URL=$(curl -s https://api.github.com/repos/sbwml/luci-app-mosdns/releases/latest | jq -r '.assets[] | select(.name | contains("luci-app-mosdns")) | .browser_download_url' | head -n 1)
-          wget -q "$IPK_URL" -P mosdns-build/
+          # 1. 复制所有 ipk 到构建目录
+          cp mosdns-source/luci-app-mosdns*.ipk mosdns-build/
           
           # 2. 下载 MosDNS 核心 (x86_64)
-          # sbwml 的仓库通常包含核心，如果需要额外下载核心，可替换此处链接
-          echo "正在下载 MosDNS 核心..."
-          # 获取官方最新核心
+          # 获取官方最新核心下载地址
           CORE_URL=$(curl -s https://api.github.com/repos/IrineSistiana/mosdns/releases/latest | jq -r '.assets[] | select(.name | contains("linux-amd64")) | .browser_download_url' | head -n 1)
           wget -q "$CORE_URL" -O mosdns-core.tar.gz
           tar -zxvf mosdns-core.tar.gz -C mosdns-build/
-          
+          # 确保文件名统一为 mosdns
+          [ -f "mosdns-build/mosdns" ] || mv mosdns-build/mosdns-v* mosdns-build/mosdns 2>/dev/null || true
+
       - name: Create install.sh
         run: |
           cat << 'EOF' > mosdns-build/install.sh
           #!/bin/sh
-          echo "===> 安装 MosDNS..."
+          echo "===> 安装 MosDNS 插件..."
           opkg install --force-depends luci-app-mosdns*.ipk
           
-          # 部署核心文件
+          echo "===> 部署核心文件..."
           mkdir -p /usr/bin/mosdns
           cp mosdns /usr/bin/mosdns/
           chmod +x /usr/bin/mosdns/mosdns
