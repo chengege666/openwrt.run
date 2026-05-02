@@ -11,48 +11,53 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Prepare Workspace
-        run: |
-          mkdir -p mosdns-build
-          git clone https://github.com/megastep/makeself.git
+        run: mkdir -p mosdns_x86_64
 
-      - name: Download Files
+      - name: Fetch Latest Tag
         run: |
-          # 1. 下载 sbwml 的 mosdns 压缩包
-          echo "正在下载 MosDNS 压缩包..."
-          # 自动获取最新发布的 tar.gz 链接
-          URL=$(curl -s https://api.github.com/repos/sbwml/luci-app-mosdns/releases/latest | jq -r '.assets[] | select(.name | contains("x86_64-openwrt-24.10.tar.gz")) | .browser_download_url' | head -n 1)
-          wget -q "$URL" -O mosdns.tar.gz
+          # 获取最新版本号
+          latest_tag=$(curl -sk https://api.github.com/repos/sbwml/luci-app-mosdns/releases | grep "tag_name" | head -n 1 | awk -F '"' '{print $4}')
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+
+      - name: Download all required files
+        run: |
+          # 1. 获取该版本所有下载链接
+          curl -sk "https://api.github.com/repos/sbwml/luci-app-mosdns/releases" > releases.json
           
-          # 2. 解压到构建目录
-          tar -zxvf mosdns.tar.gz -C mosdns-build/
-          # 如果解压后有多级目录，将其移动到顶层
-          mv mosdns-build/usr/bin/mosdns mosdns-build/mosdns
-          mv mosdns-build/usr/lib/lua/luci/controller/mosdns.lua mosdns-build/mosdns.lua 2>/dev/null || true
+          # 2. 定义过滤关键字，只要 x86_64 相关和通用的 ipk
+          # 包含：mosdns 核心、v2dat、luci-app、i18n、geoip、geosite
+          KEYS=("mosdns_5" "v2dat_" "luci-app-mosdns_" "luci-i18n-mosdns" "v2ray-geoip" "v2ray-geosite")
+          
+          for key in "${KEYS[@]}"; do
+            # 筛选 x86_64 或者 all 架构的包
+            url=$(grep -o "https://github.com/[^\"]*${key}[^\"]*x86_64[^\"]*\.ipk" releases.json | head -1 || \
+                  grep -o "https://github.com/[^\"]*${key}[^\"]*_all\.ipk" releases.json | head -1)
+            
+            if [ -n "$url" ]; then
+              echo "Downloading: $url"
+              wget -q "$url" -P mosdns_x86_64/
+            fi
+          done
 
       - name: Create install.sh
         run: |
-          cat << 'EOF' > mosdns-build/install.sh
+          cat << 'EOF' > mosdns_x86_64/install.sh
           #!/bin/sh
-          echo "===> 部署 MosDNS..."
-          # 将解压后的文件同步到系统目录
-          mkdir -p /usr/bin/mosdns
-          cp mosdns /usr/bin/mosdns/
-          chmod +x /usr/bin/mosdns/mosdns
-          
-          # 如果有 luci 界面文件，也需要放置到对应目录 (这里是一个通用的部署逻辑)
-          mkdir -p /usr/lib/lua/luci/controller/
-          [ -f "mosdns.lua" ] && cp mosdns.lua /usr/lib/lua/luci/controller/
-          
-          echo "===> 部署完成。"
+          echo "正在更新软件包列表..."
+          opkg update
+          echo "正在安装 MosDNS 及相关组件..."
+          opkg install --force-depends *.ipk
+          echo "安装完成。"
           EOF
-          chmod +x mosdns-build/install.sh
+          chmod +x mosdns_x86_64/install.sh
 
       - name: Create .run package
         run: |
-          ./makeself/makeself.sh mosdns-build/ MosDNS_x86_64.run "MosDNS Installer" ./install.sh
+          git clone https://github.com/megastep/makeself.git
+          ./makeself/makeself.sh mosdns_x86_64/ MosDNS_${{ env.LATEST_TAG }}_x86_64.run "MosDNS Installer" ./install.sh
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "MosDNS-$(date +%Y%m%d-%H%M)"
-          files: MosDNS_x86_64.run
+          tag_name: ${{ env.LATEST_TAG }}
+          files: MosDNS_*.run
