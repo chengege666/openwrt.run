@@ -1,0 +1,60 @@
+name: Build OpenClash .run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Prepare Workspace
+        run: |
+          mkdir -p openclash-build/data
+          git clone https://github.com/megastep/makeself.git
+
+      - name: Download Files
+        run: |
+          # 1. 自动获取并下载最新的 luci-app-openclash
+          echo "正在下载 OpenClash 插件..."
+          OC_URL=$(curl -s https://api.github.com/repos/vernesong/OpenClash/releases/latest | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
+          wget -q "$OC_URL" -P openclash-build/
+          
+          # 2. 下载 Clash 核心 (Meta 内核) - 这是 OpenClash 离线使用最核心的部分
+          echo "正在下载 Clash Meta 核心..."
+          wget -q https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz -O core.gz
+          gunzip core.gz
+          mv core openclash-build/clash
+          chmod +x openclash-build/clash
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > openclash-build/install.sh
+          #!/bin/sh
+          echo "===> 安装 OpenClash 插件..."
+          opkg install --force-depends *.ipk
+          
+          echo "===> 预置 Clash 核心到 OpenClash 目录..."
+          mkdir -p /etc/openclash/core
+          cp clash /etc/openclash/core/
+          chmod +x /etc/openclash/core/clash
+          
+          echo "===> 安装完成！请前往 OpenClash 界面设置。"
+          EOF
+          chmod +x openclash-build/install.sh
+
+      - name: Create self-extracting .run package
+        run: |
+          ./makeself/makeself.sh openclash-build/ OpenClash_All_x86_64.run "OpenClash Installer" ./install.sh
+
+      - name: Set Tag Name
+        run: echo "TAG_NAME=OpenClash-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: "OpenClash Bundle ${{ env.TAG_NAME }}"
+          files: OpenClash_All_x86_64.run
