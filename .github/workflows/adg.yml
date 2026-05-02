@@ -1,7 +1,10 @@
-name: Build AdG x86_64 Offline
+name: Build and Release AdG x86_64
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 支持手动点击运行
+
+permissions:
+  contents: write # 必须：赋予 Release 写入权限
 
 jobs:
   build:
@@ -12,24 +15,20 @@ jobs:
 
       - name: Download Files
         run: |
-          # 1. 下载 AdGuardHome 核心 (x86_64)
+          # 1. 自动获取版本信息
           CORE_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
-          echo "正在下载 AdGuardHome 核心: $CORE_TAG"
-          wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${CORE_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
+          echo "CORE_VERSION=$CORE_TAG" >> $GITHUB_ENV
           
+          # 2. 下载核心程序
+          wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${CORE_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
           mkdir -p temp_core
           tar -zxvf core.tar.gz -C temp_core
-          # 智能定位二进制文件
           find temp_core -type f -name "AdGuardHome" -exec cp {} adg-build/ \;
           
-          # 2. 智能获取并下载 luci-app-adguardhome 插件 (自动处理下载链接)
+          # 3. 自动下载插件
           REPO="rufengsuixing/luci-app-adguardhome"
-          echo "正在从 $REPO 获取最新 IPK..."
-          # 获取所有 .ipk 结尾的文件下载地址
           URLS=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url')
-          
           for url in $URLS; do
-            echo "正在下载: $url"
             wget -q "$url" -P adg-build/
           done
 
@@ -37,33 +36,34 @@ jobs:
         run: |
           cat << 'EOF' > adg-build/install.sh
           #!/bin/sh
-          echo "--- 开始安装 AdGuardHome (x86_64) ---"
-          
-          # 1. 安装所有下载的 ipk 包
+          echo "开始安装..."
           opkg install *.ipk
-          
-          # 2. 部署核心二进制文件
           mkdir -p /usr/bin/AdGuardHome
-          if [ -f "AdGuardHome" ]; then
-              cp AdGuardHome /usr/bin/AdGuardHome/AdGuardHome
-              chmod +x /usr/bin/AdGuardHome/AdGuardHome
-              echo "核心程序部署成功。"
-          else
-              echo "错误：未找到 AdGuardHome 核心程序文件！"
-              exit 1
-          fi
-          
-          echo "--- 安装完成，请在 OpenWrt 界面刷新查看 ---"
+          [ -f "AdGuardHome" ] && cp AdGuardHome /usr/bin/AdGuardHome/AdGuardHome && chmod +x /usr/bin/AdGuardHome/AdGuardHome
+          echo "安装结束。"
           EOF
           chmod +x adg-build/install.sh
 
       - name: Package
-        run: |
-          # 打包为 .run 文件
-          tar -zcvf adguardhome_x86_64_offline.run -C adg-build .
+        run: tar -zcvf adguardhome_x86_64_offline.run -C adg-build .
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Generate Tag
+        id: tag
+        run: |
+          # 生成类似 v2026.05.02 的标签
+          TAG_NAME="v$(date +%Y.%m.%d)"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: adguardhome-x86_64
-          path: adguardhome_x86_64_offline.run
+          tag_name: ${{ env.TAG_NAME }}
+          name: "AdGuardHome x86_64 Offline Build ${{ env.CORE_VERSION }}"
+          body: |
+            ### AdGuardHome 离线安装包
+            - 核心版本: ${{ env.CORE_VERSION }}
+            - 架构: x86_64
+            - 包含: AdGuardHome 核心 + luci-app + 中文包
+          files: adguardhome_x86_64_offline.run
+          draft: false
+          prerelease: false
