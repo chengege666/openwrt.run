@@ -12,19 +12,24 @@ jobs:
     steps:
       - name: Prepare Workspace
         run: |
-          mkdir -p openclash-build/data
+          mkdir -p openclash-build
           git clone https://github.com/megastep/makeself.git
 
       - name: Download Files
         run: |
           # 1. 自动获取并下载最新的 luci-app-openclash
           echo "正在下载 OpenClash 插件..."
+          # 使用 curl + jq 获取最新 release 中的 .ipk 链接
           OC_URL=$(curl -s https://api.github.com/repos/vernesong/OpenClash/releases/latest | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
-          wget -q "$OC_URL" -P openclash-build/
+          wget -q --retry-connrefused --waitretry=5 --timeout=20 "$OC_URL" -P openclash-build/
           
-          # 2. 下载 Clash 核心 (Meta 内核) - 这是 OpenClash 离线使用最核心的部分
+          # 2. 下载 Clash Meta 核心 (使用 MetaCubeX 官方最新发布版)
           echo "正在下载 Clash Meta 核心..."
-          wget -q https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz -O core.gz
+          # 使用兼容版本链接
+          CORE_URL="https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz"
+          wget -q --retry-connrefused --waitretry=5 --timeout=20 "$CORE_URL" -O core.gz
+          
+          # 3. 解压并处理
           gunzip core.gz
           mv core openclash-build/clash
           chmod +x openclash-build/clash
@@ -33,15 +38,15 @@ jobs:
         run: |
           cat << 'EOF' > openclash-build/install.sh
           #!/bin/sh
-          echo "===> 安装 OpenClash 插件..."
+          echo "===> 安装 OpenClash..."
           opkg install --force-depends *.ipk
           
-          echo "===> 预置 Clash 核心到 OpenClash 目录..."
+          echo "===> 预置 Clash 核心..."
           mkdir -p /etc/openclash/core
           cp clash /etc/openclash/core/
           chmod +x /etc/openclash/core/clash
           
-          echo "===> 安装完成！请前往 OpenClash 界面设置。"
+          echo "===> 安装完成。"
           EOF
           chmod +x openclash-build/install.sh
 
