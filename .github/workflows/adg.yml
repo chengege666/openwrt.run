@@ -46,7 +46,7 @@ jobs:
           tar -zcvf adguardhome_x86_64_offline.run -C adg-build .
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: adguardhome-x86_64
           path: adguardhome_x86_64_offline.run
