@@ -1,69 +1,68 @@
-name: Build and Release AdG x86_64
+name: Build iStore Compatible AdG
 
 on:
-  workflow_dispatch: # 支持手动点击运行
+  workflow_dispatch:
 
 permissions:
-  contents: write # 必须：赋予 Release 写入权限
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Prepare Workspace
-        run: mkdir -p adg-build
+        run: |
+          mkdir -p adg-build/data/usr/bin/AdGuardHome
+          mkdir -p adg-build/control
 
       - name: Download Files
         run: |
-          # 1. 自动获取版本信息
+          # 1. 下载核心
           CORE_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
-          echo "CORE_VERSION=$CORE_TAG" >> $GITHUB_ENV
-          
-          # 2. 下载核心程序
           wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${CORE_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
           mkdir -p temp_core
           tar -zxvf core.tar.gz -C temp_core
-          find temp_core -type f -name "AdGuardHome" -exec cp {} adg-build/ \;
+          find temp_core -type f -name "AdGuardHome" -exec cp {} adg-build/data/usr/bin/AdGuardHome/ \;
           
-          # 3. 自动下载插件
+          # 2. 下载插件
           REPO="rufengsuixing/luci-app-adguardhome"
           URLS=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url')
           for url in $URLS; do
             wget -q "$url" -P adg-build/
           done
 
-      - name: Create Installer
+      - name: Create IPK Control
         run: |
-          cat << 'EOF' > adg-build/install.sh
-          #!/bin/sh
-          echo "开始安装..."
-          opkg install *.ipk
-          mkdir -p /usr/bin/AdGuardHome
-          [ -f "AdGuardHome" ] && cp AdGuardHome /usr/bin/AdGuardHome/AdGuardHome && chmod +x /usr/bin/AdGuardHome/AdGuardHome
-          echo "安装结束。"
+          # 创建 IPK 必须的 control 文件
+          cat << 'EOF' > adg-build/control/control
+          Package: adguardhome-bundle
+          Version: 1.0-1
+          Architecture: x86_64
+          Maintainer: User
+          Depends: libc, luci-app-adguardhome, luci-i18n-adguardhome-zh-cn
+          Description: AdGuardHome Bundle for iStore
           EOF
-          chmod +x adg-build/install.sh
+          
+          # 创建安装脚本
+          cat << 'EOF' > adg-build/control/postinst
+          #!/bin/sh
+          chmod +x /usr/bin/AdGuardHome/AdGuardHome
+          exit 0
+          EOF
+          chmod +x adg-build/control/postinst
 
-      - name: Package
-        run: tar -zcvf adguardhome_x86_64_offline.run -C adg-build .
-
-      - name: Generate Tag
-        id: tag
+      - name: Package to IPK
         run: |
-          # 生成类似 v2026.05.02 的标签
-          TAG_NAME="v$(date +%Y.%m.%d)"
-          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          # 将文件打包成 ipk 格式 (其实就是 tar 压缩包)
+          cd adg-build
+          tar -czf control.tar.gz -C control .
+          tar -czf data.tar.gz -C data .
+          echo "2.0" > debian-binary
+          tar -czf adguardhome_bundle_x86_64.ipk control.tar.gz data.tar.gz debian-binary
+          mv adguardhome_bundle_x86_64.ipk ../
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG_NAME }}
-          name: "AdGuardHome x86_64 Offline Build ${{ env.CORE_VERSION }}"
-          body: |
-            ### AdGuardHome 离线安装包
-            - 核心版本: ${{ env.CORE_VERSION }}
-            - 架构: x86_64
-            - 包含: AdGuardHome 核心 + luci-app + 中文包
-          files: adguardhome_x86_64_offline.run
-          draft: false
-          prerelease: false
+          tag_name: v$(date +%Y.%m.%d)
+          files: adguardhome_bundle_x86_64.ipk
