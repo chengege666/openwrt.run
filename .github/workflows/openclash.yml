@@ -17,16 +17,15 @@ jobs:
 
       - name: Download Files
         run: |
-          # 1. 使用直接的下载链接下载最新的 OpenClash ipk (使用代理加速以防 8 号错误)
+          # 1. 直接从 OpenWrt.ai 镜像源获取最新的 OpenClash ipk
+          # 这是目前最稳妥的下载方式，不会触发 GitHub 的下载限制
           echo "正在下载 OpenClash 插件..."
+          wget -q -O openclash-build/openclash.ipk https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/luci-app-openclash_latest_all.ipk || \
           wget -q -O openclash-build/openclash.ipk https://github.com/vernesong/OpenClash/releases/latest/download/luci-app-openclash_all.ipk
-          
-          # 2. 下载 Clash Meta 核心 (x86_64 兼容版本)
+
+          # 2. 下载 Clash Meta 核心
           echo "正在下载 Clash Meta 核心..."
-          # 使用 ghproxy 加速下载
-          wget -q -O core.gz https://ghproxy.com/https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz || \
           wget -q -O core.gz https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz
-          
           gunzip core.gz
           mv core openclash-build/clash
           chmod +x openclash-build/clash
