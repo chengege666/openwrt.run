@@ -17,29 +17,14 @@ jobs:
 
       - name: Download Argon Theme
         run: |
-          echo "正在下载 Argon 主题..."
-          
-          # 修改策略：因为 release 不一定有 ipk，我们直接从仓库预编译好的资源下载 (基于 OpenWrt 的通用源)
-          # 这是目前最稳妥的方法
-          wget -q https://github.com/jerrykuku/luci-theme-argon/releases/download/v2.3.1/luci-theme-argon_2.3.1_all.ipk -P argon-build/ || \
+          wget -q https://github.com/jerrykuku/luci-theme-argon/releases/download/v2.3.1/luci-theme-argon_2.3.1_all.ipk -P argon-build/
           wget -q https://github.com/jerrykuku/luci-app-argon-config/releases/download/v0.9/luci-app-argon-config_0.9_all.ipk -P argon-build/
-          
-          # 检查下载结果
-          if [ "$(ls -A argon-build/)" ]; then
-             echo "下载成功"
-          else
-             echo "下载失败，请检查链接"
-             exit 1
-          fi
 
       - name: Create install.sh
         run: |
           cat << 'EOF' > argon-build/install.sh
           #!/bin/sh
-          echo "===> 正在安装 Argon 主题..."
-          # 使用 --force-depends 强制安装以跳过依赖检测
           opkg install --force-depends *.ipk
-          echo "===> Argon 主题安装完成！"
           EOF
           chmod +x argon-build/install.sh
 
@@ -47,9 +32,13 @@ jobs:
         run: |
           ./makeself/makeself.sh argon-build/ Argon_Theme_All.run "Argon Theme Installer" ./install.sh
 
+      # 修正点：先生成合法的 Tag 并存入环境变量
+      - name: Set Tag Name
+        run: echo "TAG_NAME=Argon-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "Argon-$(date +%Y%m%d-%H%M)"
-          name: "Argon Theme Bundle"
+          tag_name: ${{ env.TAG_NAME }}
+          name: "Argon Theme Bundle ${{ env.TAG_NAME }}"
           files: Argon_Theme_All.run
