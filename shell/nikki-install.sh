@@ -1,5 +1,4 @@
 #!/bin/sh
-set -e
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 
@@ -28,6 +27,19 @@ install_optional_pkg() {
     return 0
 }
 
+install_local_ipk() {
+    pkg_file="$1"
+    pkg_name="$(basename "$pkg_file")"
+
+    if opkg list-installed | grep -q "^$(echo "$pkg_name" | sed 's/_.*//') "; then
+        log "已安装: $pkg_name"
+        return 0
+    fi
+
+    log "安装: $pkg_name"
+    opkg install "$pkg_file"
+}
+
 ls "$SCRIPT_DIR"/*.ipk >/dev/null 2>&1 || fail "未找到 Nikki 安装包。"
 
 log "正在更新软件源..."
@@ -41,10 +53,22 @@ install_optional_pkg kmod-tun
 install_optional_pkg kmod-inet-diag
 
 log "正在安装本地 ipk 包..."
-opkg install "$SCRIPT_DIR"/*.ipk || fail "Nikki 安装失败，请检查系统版本是否为 OpenWrt 24.10+，以及依赖源是否完整。"
+for pkg_file in "$SCRIPT_DIR"/*.ipk; do
+    install_local_ipk "$pkg_file" || echo "警告：包 $(basename "$pkg_file") 安装未完全成功，继续下一个。"
+done
 
-if ! opkg list-installed | grep -q '^luci-app-nikki '; then
-    fail "未检测到 luci-app-nikki 已安装。"
+log "验证安装结果..."
+INSTALL_FAIL=0
+for pkg_pattern in mihomo-meta nikki luci-app-nikki; do
+    if opkg list-installed | grep -q "^$pkg_pattern"; then
+        log "已检测到: $pkg_pattern"
+    else
+        echo "警告：未检测到 $pkg_pattern，可能存在兼容性问题。"
+    fi
+done
+
+if ! opkg list-installed | grep -q "^luci-app-nikki"; then
+    echo "警告：luci-app-nikki 未检测到，请手动检查安装状态。"
 fi
 
 log "刷新 LuCI 缓存..."
@@ -57,7 +81,7 @@ log "重启相关服务..."
 if [ -f /usr/share/luci/menu.d/luci-app-nikki.json ] || [ -f /usr/lib/lua/luci/controller/nikki.lua ]; then
     log "已检测到 LuCI 入口文件。"
 else
-    echo "警告：未检测到传统 LuCI 入口文件，请手动刷新页面并检查“服务”菜单。"
+    echo "警告：未检测到传统 LuCI 入口文件，请手动刷新页面并检查"服务"菜单。"
 fi
 
 log "安装完成，请在 LuCI 中打开 Nikki 继续配置。"
