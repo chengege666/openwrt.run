@@ -12,21 +12,26 @@ jobs:
 
       - name: Download Files
         run: |
-          # 1. 获取并下载 AdGuardHome x86_64 核心
+          # 1. 下载 AdGuardHome 核心 (x86_64)
           CORE_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
-          echo "正在下载 AdGuardHome 版本: $CORE_TAG"
+          echo "正在下载 AdGuardHome 核心: $CORE_TAG"
           wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${CORE_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
           
-          # 2. 解压并使用 find 智能寻找可执行文件
           mkdir -p temp_core
           tar -zxvf core.tar.gz -C temp_core
-          # 查找并移动二进制文件到 adg-build 根目录
+          # 智能定位二进制文件
           find temp_core -type f -name "AdGuardHome" -exec cp {} adg-build/ \;
           
-          # 3. 下载 luci-app 和中文包
-          BASE_URL="https://github.com/rufengsuixing/luci-app-adguardhome/releases/latest/download"
-          wget $BASE_URL/luci-app-adguardhome_all.ipk -P adg-build/
-          wget $BASE_URL/luci-i18n-adguardhome-zh-cn_all.ipk -P adg-build/
+          # 2. 智能获取并下载 luci-app-adguardhome 插件 (自动处理下载链接)
+          REPO="rufengsuixing/luci-app-adguardhome"
+          echo "正在从 $REPO 获取最新 IPK..."
+          # 获取所有 .ipk 结尾的文件下载地址
+          URLS=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url')
+          
+          for url in $URLS; do
+            echo "正在下载: $url"
+            wget -q "$url" -P adg-build/
+          done
 
       - name: Create Installer
         run: |
@@ -34,14 +39,11 @@ jobs:
           #!/bin/sh
           echo "--- 开始安装 AdGuardHome (x86_64) ---"
           
-          # 1. 安装 ipk 包
+          # 1. 安装所有下载的 ipk 包
           opkg install *.ipk
           
           # 2. 部署核心二进制文件
-          # 确保目录存在
           mkdir -p /usr/bin/AdGuardHome
-          
-          # 移动核心程序并赋予执行权限
           if [ -f "AdGuardHome" ]; then
               cp AdGuardHome /usr/bin/AdGuardHome/AdGuardHome
               chmod +x /usr/bin/AdGuardHome/AdGuardHome
