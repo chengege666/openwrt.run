@@ -17,19 +17,27 @@ jobs:
 
       - name: Download Passwall Files
         run: |
-          # 1. 下载依赖压缩包 (使用固定URL，确保无空格)
-          echo "正在下载依赖包..."
-          wget -q -O depends.zip "https://github.com/wkccd/storage/releases/download/pw/passwall_packages_ipk_x86_64.zip"
+          # 定义一个超强下载函数：原生下载失败自动切换 ghproxy 镜像代理
+          safe_download() {
+            local url=$1
+            local output=$2
+            echo "尝试下载: $url"
+            wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "$url" || \
+            wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://ghproxy.com/$url" || \
+            wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://mirror.ghproxy.com/$url"
+          }
+
+          # 1. 下载依赖包 (使用悟空大佬维护的稳定源)
+          safe_download "https://github.com/wkccd/storage/releases/download/pw/passwall_packages_ipk_x86_64.zip" "depends.zip"
           unzip -q depends.zip -d passwall_x86_64/depends/
           
-          # 2. 直接下载主程序和中文包 (使用 GitHub 最新发布重定向链接)
-          echo "正在下载主程序和中文包..."
-          wget -q -P passwall_x86_64/main/ "https://github.com/Openwrt-Passwall/openwrt-passwall/releases/latest/download/luci-app-passwall_all.ipk"
-          wget -q -P passwall_x86_64/main/ "https://github.com/Openwrt-Passwall/openwrt-passwall/releases/latest/download/luci-i18n-passwall-zh-cn_all.ipk"
+          # 2. 下载主程序和中文包 (使用 GitHub 官方重定向链接)
+          safe_download "https://github.com/Openwrt-Passwall/openwrt-passwall/releases/latest/download/luci-app-passwall_all.ipk" "passwall_x86_64/main/luci-app-passwall_all.ipk"
+          safe_download "https://github.com/Openwrt-Passwall/openwrt-passwall/releases/latest/download/luci-i18n-passwall-zh-cn_all.ipk" "passwall_x86_64/main/luci-i18n-passwall-zh-cn_all.ipk"
 
-          # 3. 验证下载
+          # 3. 验证下载是否成功
           if [ ! -f "passwall_x86_64/main/luci-app-passwall_all.ipk" ]; then
-            echo "错误：下载失败！"
+            echo "错误：关键文件下载失败，请检查链接有效性。"
             exit 1
           fi
 
@@ -37,17 +45,17 @@ jobs:
         run: |
           cat << 'EOF' > passwall_x86_64/install.sh
           #!/bin/sh
-          echo "===> 正在更新软件包列表..."
+          echo "===> 正在更新软件源..."
           opkg update
           
-          echo "===> 正在安装网络基础依赖..."
-          opkg install --force-depends iptables-mod-tproxy iptables-mod-socket iptables-mod-iprange iptables-mod-conntrack-extra
+          echo "===> 正在安装网络依赖..."
+          opkg install --force-depends iptables-mod-tproxy iptables-mod-socket iptables-mod-iprange iptables-mod-conntrack-extra 2>/dev/null
           
-          echo "===> 正在安装 Passwall 组件..."
+          echo "===> 正在安装 Passwall..."
           opkg install --force-depends depends/*.ipk
           opkg install --force-depends main/*.ipk
           
-          echo "===> 安装完成。"
+          echo "===> 安装完成！"
           EOF
           chmod +x passwall_x86_64/install.sh
 
@@ -55,9 +63,12 @@ jobs:
         run: |
           ./makeself/makeself.sh passwall_x86_64/ Passwall_x86_64_latest.run "Passwall Installer" ./install.sh
 
+      - name: Set Tag Name
+        run: echo "TAG_NAME=Passwall-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "Passwall-$(date +%Y%m%d-%H%M)"
-          name: "PassWall Bundle"
+          tag_name: ${{ env.TAG_NAME }}
+          name: "PassWall Bundle ${{ env.TAG_NAME }}"
           files: Passwall_x86_64_latest.run
