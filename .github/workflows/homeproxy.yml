@@ -1,4 +1,4 @@
-name: Build HomeProxy .run
+name: Make HomeProxy run files
 
 on:
   workflow_dispatch:
@@ -7,128 +7,61 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  make-run:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: Prepare Workspace
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install makeself
+        run: sudo apt-get update && sudo apt-get install -y makeself curl
+
+      - name: Download HomeProxy packages
         run: |
-          mkdir -p homeproxy_pkg
-          git clone https://github.com/megastep/makeself.git
+          chmod +x shell/homeproxy.sh
+          ./shell/homeproxy.sh
 
-      - name: Fetch Package Info
+      - name: Copy install.sh
         run: |
-          PACKAGE_FEED_URL="https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9"
-          INDEX_HTML="$(curl -fsSL "$PACKAGE_FEED_URL/")"
-          HOMEPROXY_FILE="$(echo "$INDEX_HTML" | grep -oE 'luci-app-homeproxy_[^"]*_all\.ipk' | sort -V | tail -n 1)"
-          SINGBOX_FILE="$(echo "$INDEX_HTML" | grep -oE 'sing-box_[^"]*_x86_64\.ipk' | sort -V | tail -n 1)"
+          chmod +x shell/install.sh
+          cp shell/install.sh x86_64/install.sh
+          cp shell/install.sh aarch64_generic/install.sh
+          cp shell/install.sh aarch64_cortex-a53/install.sh
 
-          [ -n "$HOMEPROXY_FILE" ] || { echo "错误：在 $PACKAGE_FEED_URL 中未找到 luci-app-homeproxy 安装包。"; exit 1; }
-          [ -n "$SINGBOX_FILE" ] || { echo "错误：在 $PACKAGE_FEED_URL 中未找到 sing-box 安装包。"; exit 1; }
-
-          TAG_NAME="${HOMEPROXY_FILE#luci-app-homeproxy_}"
-          TAG_NAME="${TAG_NAME%_all.ipk}"
-          HOMEPROXY_URL="$PACKAGE_FEED_URL/$HOMEPROXY_FILE"
-          SINGBOX_URL="$PACKAGE_FEED_URL/$SINGBOX_FILE"
-
-          echo "PACKAGE_FEED_URL=$PACKAGE_FEED_URL" >> "$GITHUB_ENV"
-          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
-          echo "HOMEPROXY_URL=$HOMEPROXY_URL" >> "$GITHUB_ENV"
-          echo "SINGBOX_URL=$SINGBOX_URL" >> "$GITHUB_ENV"
-          echo "最新版本: $TAG_NAME"
-          echo "HomeProxy: $HOMEPROXY_URL"
-          echo "sing-box: $SINGBOX_URL"
-
-      - name: Download HomeProxy Packages
+      - name: Extract version and pack
+        id: pack
         run: |
-          safe_download() {
-            local url="$1"
-            local output="$2"
-            echo "尝试下载: $url"
-            wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "$url" || \
-            wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://ghproxy.com/$url" || \
-            wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://mirror.ghproxy.com/$url"
-            test -s "$output"
-          }
+          mkdir -p output
 
-          safe_download "$HOMEPROXY_URL" "homeproxy_pkg/$(basename "$HOMEPROXY_URL")"
-          safe_download "$SINGBOX_URL" "homeproxy_pkg/$(basename "$SINGBOX_URL")"
-          ls -lh homeproxy_pkg/
+          APP_IPK="$(ls aarch64_generic/luci-app-homeproxy_*.ipk | head -n 1)"
+          VERSION="$(basename "$APP_IPK" | sed -n 's/^luci-app-homeproxy_\(.*\)_all\.ipk$/\1/p')"
 
-      - name: Create install.sh
-        run: |
-          cat << 'EOF' > homeproxy_pkg/install.sh
-          #!/bin/sh
-          set -e
-
-          SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-
-          log() {
-              echo "===> $*"
-          }
-
-          fail() {
-              echo "错误：$*" >&2
-              exit 1
-          }
-
-          install_optional_pkg() {
-              pkg="$1"
-              if opkg list-installed | grep -q "^$pkg "; then
-                  log "已安装依赖: $pkg"
-                  return 0
-              fi
-
-              if opkg install "$pkg"; then
-                  log "已安装依赖: $pkg"
-                  return 0
-              fi
-
-              echo "警告：未能自动安装依赖 $pkg，请确认当前软件源可用。"
-              return 0
-          }
-
-          ls "$SCRIPT_DIR"/*.ipk >/dev/null 2>&1 || fail "未找到 HomeProxy 安装包。"
-
-          log "正在更新软件源..."
-          opkg update
-
-          log "正在安装 HomeProxy 运行时依赖..."
-          install_optional_pkg firewall4
-          install_optional_pkg kmod-nft-tproxy
-          install_optional_pkg kmod-nft-socket
-          install_optional_pkg sing-box
-
-          log "正在安装 HomeProxy..."
-          opkg install "$SCRIPT_DIR"/*.ipk || fail "HomeProxy 安装失败，请检查系统版本是否为 OpenWrt 23.05+，以及依赖源是否完整。"
-
-          if ! opkg list-installed | grep -q '^luci-app-homeproxy '; then
-              fail "未检测到 luci-app-homeproxy 已安装。"
+          if [ -z "$VERSION" ]; then
+            echo "无法提取版本号"
+            exit 1
           fi
 
-          log "刷新 LuCI 缓存..."
-          rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "$VERSION"
 
-          log "重启相关服务..."
-          /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null
-          /etc/init.d/rpcd restart 2>/dev/null
+          for PLATFORM in x86_64 aarch64_generic aarch64_cortex-a53; do
+            makeself "$PLATFORM" "output/luci-app-homeproxy-${VERSION}_${PLATFORM}.run" \
+              "homeproxy ${PLATFORM} Installer v${VERSION}" ./install.sh
+          done
 
-          if [ -f /usr/share/luci/menu.d/luci-app-homeproxy.json ] || [ -f /usr/lib/lua/luci/controller/homeproxy.lua ]; then
-              log "已检测到 LuCI 入口文件。"
-          else
-              echo "警告：未检测到传统 LuCI 入口文件，请手动刷新页面并检查“服务”菜单。"
-          fi
-
-          log "安装完成，请在 LuCI 中打开 HomeProxy 继续配置。"
-          EOF
-          chmod +x homeproxy_pkg/install.sh
-
-      - name: Create .run package
+      - name: Clean version
+        id: clean_version
         run: |
-          ./makeself/makeself.sh homeproxy_pkg/ HomeProxy_${{ env.TAG_NAME }}.run "HomeProxy Installer" ./install.sh
+          version="${{ steps.pack.outputs.version }}"
+          version="${version%%~*}"
+          echo "VERSION_CLEAN=$version" >> "$GITHUB_ENV"
+          echo "cleaned_version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Release
+      - name: Upload release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: HomeProxy-${{ env.TAG_NAME }}
-          name: "HomeProxy ${{ env.TAG_NAME }}"
-          files: HomeProxy_${{ env.TAG_NAME }}.run
+          tag_name: "homeproxy-${{ steps.clean_version.outputs.cleaned_version }}"
+          name: "homeproxy-${{ steps.clean_version.outputs.cleaned_version }}"
+          body_path: ${{ github.workspace }}/info/homeproxy.md
+          files: output/*.run
