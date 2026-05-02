@@ -75,6 +75,12 @@ jobs:
               ls "$1"/*.ipk >/dev/null 2>&1 || fail "目录中没有找到 ipk 包: $1"
           }
 
+          basename_nover() {
+              local filename
+              filename="$(basename "$1")"
+              echo "${filename%%_*}"
+          }
+
           install_optional_pkg() {
               pkg="$1"
               if opkg list-installed | grep -q "^$pkg "; then
@@ -91,6 +97,52 @@ jobs:
               return 0
           }
 
+          install_dep_packages() {
+              local pass remaining next_remaining pkg pkg_name progress
+
+              remaining=
+              for pkg in "$DEPENDS_DIR"/*.ipk; do
+                  remaining="$remaining $pkg"
+              done
+
+              pass=1
+              while [ "$pass" -le 3 ] && [ -n "$remaining" ]; do
+                  log "正在安装依赖包，第 $pass 轮..."
+                  next_remaining=
+                  progress=0
+
+                  for pkg in $remaining; do
+                      pkg_name="$(basename_nover "$pkg")"
+                      if opkg list-installed | grep -q "^$pkg_name "; then
+                          continue
+                      fi
+
+                      if opkg install "$pkg"; then
+                          progress=1
+                      else
+                          echo "警告：依赖包暂未安装成功，稍后重试: $(basename "$pkg")"
+                          next_remaining="$next_remaining $pkg"
+                      fi
+                  done
+
+                  remaining="$next_remaining"
+                  [ "$progress" -eq 1 ] || break
+                  pass=$((pass + 1))
+              done
+
+              FAILED_DEPS="$remaining"
+          }
+
+          print_failed_deps() {
+              local pkg
+
+              [ -n "$FAILED_DEPS" ] || return 0
+              echo "以下依赖包仍未安装成功："
+              for pkg in $FAILED_DEPS; do
+                  echo "  - $(basename "$pkg")"
+              done
+          }
+
           require_pkg_dir "$DEPENDS_DIR"
           require_pkg_dir "$MAIN_DIR"
 
@@ -105,8 +157,9 @@ jobs:
           install_optional_pkg iptables-mod-iprange
           install_optional_pkg iptables-mod-conntrack-extra
 
-          log "正在安装依赖包..."
-          opkg install "$DEPENDS_DIR"/*.ipk || fail "依赖包安装失败，请检查系统架构、OpenWrt 版本或依赖源是否匹配。"
+          FAILED_DEPS=
+          install_dep_packages
+          print_failed_deps
 
           log "正在安装 Passwall 主程序..."
           opkg install "$MAIN_DIR"/*.ipk || fail "Passwall 主程序安装失败，请检查主包与依赖包版本是否匹配。"
