@@ -53,7 +53,23 @@ install_optional_pkg kmod-tun
 install_optional_pkg kmod-inet-diag
 
 log "正在安装本地 ipk 包..."
+for pkg_pattern in mihomo-meta nikki luci-app-nikki; do
+    found=0
+    for pkg_file in "$SCRIPT_DIR"/${pkg_pattern}_*.ipk; do
+        [ -f "$pkg_file" ] || continue
+        found=1
+        install_local_ipk "$pkg_file" || echo "警告：包 $(basename "$pkg_file") 安装未完全成功，继续下一个。"
+    done
+    [ "$found" -eq 1 ] || fail "缺少关键安装包: ${pkg_pattern}_*.ipk"
+done
+
 for pkg_file in "$SCRIPT_DIR"/*.ipk; do
+    base_name="$(basename "$pkg_file")"
+    case "$base_name" in
+        mihomo-meta_*|nikki_*|luci-app-nikki_*)
+            continue
+            ;;
+    esac
     install_local_ipk "$pkg_file" || echo "警告：包 $(basename "$pkg_file") 安装未完全成功，继续下一个。"
 done
 
@@ -63,13 +79,12 @@ for pkg_pattern in mihomo-meta nikki luci-app-nikki; do
     if opkg list-installed | grep -q "^$pkg_pattern"; then
         log "已检测到: $pkg_pattern"
     else
-        echo "警告：未检测到 $pkg_pattern，可能存在兼容性问题。"
+        echo "错误：未检测到 $pkg_pattern，安装失败。"
+        INSTALL_FAIL=1
     fi
 done
 
-if ! opkg list-installed | grep -q "^luci-app-nikki"; then
-    echo "警告：luci-app-nikki 未检测到，请手动检查安装状态。"
-fi
+[ "$INSTALL_FAIL" -eq 0 ] || fail "Nikki 关键组件未全部安装成功。"
 
 log "刷新 LuCI 缓存..."
 rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
