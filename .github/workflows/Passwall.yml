@@ -27,7 +27,7 @@ jobs:
             wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://mirror.ghproxy.com/$url"
           }
 
-          # 1. 下载依赖包 (使用悟空大佬维护的稳定源)
+          # 1. 下载依赖包 
           safe_download "https://github.com/wkccd/storage/releases/download/pw/passwall_packages_ipk_x86_64.zip" "depends.zip"
           unzip -q depends.zip -d passwall_x86_64/depends/
           
@@ -41,21 +41,41 @@ jobs:
             exit 1
           fi
 
+          # 4. （可选）列出依赖包内容，方便检查
+          echo "依赖包内容预览："
+          unzip -l depends.zip | head -n 30
+
       - name: Create install.sh
         run: |
           cat << 'EOF' > passwall_x86_64/install.sh
           #!/bin/sh
+          set -e  # 遇到错误立即退出，避免掩盖问题
+
           echo "===> 正在更新软件源..."
           opkg update
-          
+
           echo "===> 正在安装网络依赖..."
-          opkg install --force-depends iptables-mod-tproxy iptables-mod-socket iptables-mod-iprange iptables-mod-conntrack-extra 2>/dev/null
-          
+          opkg install --force-depends iptables-mod-tproxy iptables-mod-socket iptables-mod-iprange iptables-mod-conntrack-extra
+
           echo "===> 正在安装 Passwall..."
           opkg install --force-depends depends/*.ipk
           opkg install --force-depends main/*.ipk
-          
-          echo "===> 安装完成！"
+
+          # 验证核心文件是否真的安装成功
+          if [ ! -f /usr/lib/lua/luci/controller/passwall.lua ]; then
+              echo "错误：未找到 passwall 控制器文件，安装可能不完整！"
+              exit 1
+          fi
+
+          echo "===> 刷新 LuCI 菜单..."
+          # 清除 LuCI 缓存
+          rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
+          # 重启 Web 服务（兼容 uhttpd 和 nginx）
+          /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null
+          # 重启 rpcd（部分插件用到）
+          /etc/init.d/rpcd restart 2>/dev/null
+
+          echo "===> 安装完成！请刷新浏览器页面查看 Passwall 服务。"
           EOF
           chmod +x passwall_x86_64/install.sh
 
