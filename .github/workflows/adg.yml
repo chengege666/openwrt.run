@@ -1,4 +1,4 @@
-name: Build and Release IPK
+name: Build AdG x86_64 .run
 
 on:
   workflow_dispatch:
@@ -11,9 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Prepare Workspace
-        run: |
-          mkdir -p adg-build/data/usr/bin/AdGuardHome
-          mkdir -p adg-build/control
+        run: mkdir -p adg-build
 
       - name: Download Files
         run: |
@@ -21,7 +19,7 @@ jobs:
           wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${CORE_TAG}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
           mkdir -p temp_core
           tar -zxvf core.tar.gz -C temp_core
-          find temp_core -type f -name "AdGuardHome" -exec cp {} adg-build/data/usr/bin/AdGuardHome/ \;
+          find temp_core -type f -name "AdGuardHome" -exec cp {} adg-build/ \;
           
           REPO="rufengsuixing/luci-app-adguardhome"
           URLS=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url')
@@ -29,39 +27,26 @@ jobs:
             wget -q "$url" -P adg-build/
           done
 
-      - name: Create IPK Control
+      - name: Create install.sh
         run: |
-          cat << 'EOF' > adg-build/control/control
-          Package: adguardhome-bundle
-          Version: 1.0-1
-          Architecture: x86_64
-          Maintainer: User
-          Depends: luci-app-adguardhome, luci-i18n-adguardhome-zh-cn
-          Description: AdGuardHome Bundle for iStore
-          EOF
-          cat << 'EOF' > adg-build/control/postinst
+          cat << 'EOF' > adg-build/install.sh
           #!/bin/sh
+          echo "--- 正在安装 AdGuardHome (x86_64) ---"
+          # 使用 --force-depends 忽略依赖检查 (关键修复)
+          opkg install --force-depends *.ipk
+          mkdir -p /usr/bin/AdGuardHome
+          mv AdGuardHome /usr/bin/AdGuardHome/AdGuardHome
           chmod +x /usr/bin/AdGuardHome/AdGuardHome
-          exit 0
+          echo "--- 安装完成 ---"
           EOF
-          chmod +x adg-build/control/postinst
+          chmod +x adg-build/install.sh
 
-      - name: Package to IPK
+      - name: Package
         run: |
-          cd adg-build
-          tar -czf control.tar.gz -C control .
-          tar -czf data.tar.gz -C data .
-          echo "2.0" > debian-binary
-          tar -czf adguardhome_bundle_x86_64.ipk control.tar.gz data.tar.gz debian-binary
-          mv adguardhome_bundle_x86_64.ipk ../
-
-      # 关键步骤：先生成 tag 环境变量
-      - name: Set Tag Name
-        id: vars
-        run: echo "tag_name=v$(date +%Y.%m.%d-%H%M)" >> $GITHUB_ENV
+          tar -zcvf adguardhome_x86_64.run -C adg-build .
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.tag_name }}
-          files: adguardhome_bundle_x86_64.ipk
+          tag_name: v$(date +%Y.%m.%d-%H%M)
+          files: adguardhome_x86_64.run
