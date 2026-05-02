@@ -1,4 +1,4 @@
-name: Build OpenClash .run
+name: Build OpenClash .run (Clone Method)
 
 on:
   workflow_dispatch:
@@ -10,56 +10,58 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Prepare Workspace
-        run: |
-          mkdir -p openclash-build
-          git clone https://github.com/megastep/makeself.git
+      - name: Prepare Directories
+        run: mkdir -p openclash-x86
 
-      - name: Download Files
+      - name: Checkout OpenClash package branch
+        uses: actions/checkout@v4
+        with:
+          repository: vernesong/OpenClash
+          ref: package
+          path: OpenClash-Package
+
+      - name: Checkout OpenClash core branch
+        uses: actions/checkout@v4
+        with:
+          repository: vernesong/OpenClash
+          ref: core
+          path: OpenClash-Core
+
+      - name: Prepare Files
         run: |
-          # 1. 尝试从 vernesong/OpenClash 下载最新 ipk
-          # 这里不使用 API，直接通过 GitHub 网页结构抓取最新的 ipk 链接
-          echo "正在下载 OpenClash 插件..."
-          # 抓取 release 页面中最新的 .ipk 文件地址
-          OC_URL=$(curl -sL https://github.com/vernesong/OpenClash/releases | grep -oE "/vernesong/OpenClash/releases/download/[^/]+/[^/]+\.ipk" | head -n 1)
-          # 补全完整 URL
-          FULL_OC_URL="https://github.com$OC_URL"
-          echo "解析到的下载地址: $FULL_OC_URL"
+          # 复制 ipk 到工作目录
+          cp OpenClash-Package/master/*.ipk openclash-x86/
           
-          # 使用 wget 重试机制下载
-          wget -q --retry-connrefused --waitretry=5 --timeout=30 -O openclash-build/openclash.ipk "$FULL_OC_URL"
+          # 获取版本号
+          VERSION=$(head -n 1 OpenClash-Package/master/version)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
           
-          # 2. 下载 Clash Meta 核心
-          echo "正在下载 Clash Meta 核心..."
-          # 这里锁定特定架构的 Meta 核心，确保下载链接稳定
-          wget -q --retry-connrefused --waitretry=5 --timeout=30 -O core.gz https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz
-          gunzip core.gz
-          mv core openclash-build/clash
-          chmod +x openclash-build/clash
+          # 解压 x86_64 核心 (从 core 分支)
+          tar -xzvf OpenClash-Core/master/meta/clash-linux-amd64-v1.tar.gz -C openclash-x86/
+          mv openclash-x86/clash openclash-x86/clash_meta
 
       - name: Create install.sh
         run: |
-          cat << 'EOF' > openclash-build/install.sh
+          cat << 'EOF' > openclash-x86/install.sh
           #!/bin/sh
-          echo "===> 安装 OpenClash..."
-          opkg install --force-depends openclash.ipk
+          # 安装插件
+          opkg install --force-depends *.ipk
+          # 移动核心
           mkdir -p /etc/openclash/core
-          cp clash /etc/openclash/core/clash
-          chmod +x /etc/openclash/core/clash
-          echo "===> 安装完成。"
+          mv clash_meta /etc/openclash/core/
+          chmod +x /etc/openclash/core/clash_meta
+          echo "安装完成。"
           EOF
-          chmod +x openclash-build/install.sh
+          chmod +x openclash-x86/install.sh
 
-      - name: Create self-extracting .run package
+      - name: Create .run package
         run: |
-          ./makeself/makeself.sh openclash-build/ OpenClash_All_x86_64.run "OpenClash Installer" ./install.sh
-
-      - name: Set Tag Name
-        run: echo "TAG_NAME=OpenClash-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+          git clone https://github.com/megastep/makeself.git
+          ./makeself/makeself.sh openclash-x86/ OpenClash_x86_64_${{ env.VERSION }}.run "OpenClash by Actions" ./install.sh
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG_NAME }}
-          name: "OpenClash Bundle ${{ env.TAG_NAME }}"
-          files: OpenClash_All_x86_64.run
+          tag_name: ${{ env.VERSION }}
+          name: "OpenClash ${{ env.VERSION }}"
+          files: OpenClash_x86_64_*.run
