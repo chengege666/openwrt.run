@@ -1,0 +1,52 @@
+name: Build Argon Theme .run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Prepare Workspace
+        run: |
+          mkdir -p argon-build
+          git clone https://github.com/megastep/makeself.git
+
+      - name: Download Argon Theme
+        run: |
+          # 自动获取 jerrykuku 的 Argon 主题最新版
+          # 注意：Argon 主题有两个部分：主题本身和配置界面(luci-app-argon-config)
+          echo "正在下载 Argon 主题..."
+          
+          # 获取最新 release 的下载链接
+          BASE_URL="https://api.github.com/repos/jerrykuku/luci-theme-argon/releases/latest"
+          THEME_URL=$(curl -s $BASE_URL | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
+          wget -q "$THEME_URL" -P argon-build/
+          
+          # 顺便下载配置界面插件 (可选)
+          CONFIG_URL=$(curl -s https://api.github.com/repos/jerrykuku/luci-app-argon-config/releases/latest | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
+          wget -q "$CONFIG_URL" -P argon-build/
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > argon-build/install.sh
+          #!/bin/sh
+          echo "===> 正在安装 Argon 主题..."
+          opkg install --force-depends *.ipk
+          echo "===> Argon 主题安装完成！"
+          EOF
+          chmod +x argon-build/install.sh
+
+      - name: Create self-extracting .run package
+        run: |
+          ./makeself/makeself.sh argon-build/ Argon_Theme_All.run "Argon Theme Installer" ./install.sh
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "Argon-$(date +%Y%m%d)"
+          name: "Argon Theme Bundle"
+          files: Argon_Theme_All.run
