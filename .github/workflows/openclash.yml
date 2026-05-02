@@ -17,17 +17,22 @@ jobs:
 
       - name: Download Files
         run: |
-          # 1. 直接下载 vernesong/OpenClash 的最新版 ipk
-          # 这里不通过复杂 API 搜索，直接利用 GitHub Releases 的 latest 下载重定向功能
+          # 1. 尝试从 vernesong/OpenClash 下载最新 ipk
+          # 这里不使用 API，直接通过 GitHub 网页结构抓取最新的 ipk 链接
           echo "正在下载 OpenClash 插件..."
-          wget -q -O openclash-build/openclash.ipk https://github.com/vernesong/OpenClash/releases/latest/download/luci-app-openclash_all.ipk
+          # 抓取 release 页面中最新的 .ipk 文件地址
+          OC_URL=$(curl -sL https://github.com/vernesong/OpenClash/releases | grep -oE "/vernesong/OpenClash/releases/download/[^/]+/[^/]+\.ipk" | head -n 1)
+          # 补全完整 URL
+          FULL_OC_URL="https://github.com$OC_URL"
+          echo "解析到的下载地址: $FULL_OC_URL"
+          
+          # 使用 wget 重试机制下载
+          wget -q --retry-connrefused --waitretry=5 --timeout=30 -O openclash-build/openclash.ipk "$FULL_OC_URL"
           
           # 2. 下载 Clash Meta 核心
           echo "正在下载 Clash Meta 核心..."
-          # 这里使用直接下载地址，且不带复杂的变量嵌套
-          wget -q -O core.gz https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz
-          
-          # 3. 解压处理
+          # 这里锁定特定架构的 Meta 核心，确保下载链接稳定
+          wget -q --retry-connrefused --waitretry=5 --timeout=30 -O core.gz https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz
           gunzip core.gz
           mv core openclash-build/clash
           chmod +x openclash-build/clash
@@ -38,12 +43,9 @@ jobs:
           #!/bin/sh
           echo "===> 安装 OpenClash..."
           opkg install --force-depends openclash.ipk
-          
-          echo "===> 预置 Clash 核心..."
           mkdir -p /etc/openclash/core
           cp clash /etc/openclash/core/clash
           chmod +x /etc/openclash/core/clash
-          
           echo "===> 安装完成。"
           EOF
           chmod +x openclash-build/install.sh
