@@ -17,15 +17,17 @@ jobs:
 
       - name: Download Files
         run: |
-          # 1. 直接从 OpenWrt.ai 镜像源获取最新的 OpenClash ipk
-          # 这是目前最稳妥的下载方式，不会触发 GitHub 的下载限制
+          # 1. 直接下载 vernesong/OpenClash 的最新版 ipk
+          # 这里不通过复杂 API 搜索，直接利用 GitHub Releases 的 latest 下载重定向功能
           echo "正在下载 OpenClash 插件..."
-          wget -q -O openclash-build/openclash.ipk https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/luci-app-openclash_latest_all.ipk || \
           wget -q -O openclash-build/openclash.ipk https://github.com/vernesong/OpenClash/releases/latest/download/luci-app-openclash_all.ipk
-
+          
           # 2. 下载 Clash Meta 核心
           echo "正在下载 Clash Meta 核心..."
+          # 这里使用直接下载地址，且不带复杂的变量嵌套
           wget -q -O core.gz https://github.com/MetaCubeX/Clash.Meta/releases/latest/download/clash.meta-linux-amd64-compatible-latest.gz
+          
+          # 3. 解压处理
           gunzip core.gz
           mv core openclash-build/clash
           chmod +x openclash-build/clash
@@ -36,9 +38,12 @@ jobs:
           #!/bin/sh
           echo "===> 安装 OpenClash..."
           opkg install --force-depends openclash.ipk
+          
+          echo "===> 预置 Clash 核心..."
           mkdir -p /etc/openclash/core
           cp clash /etc/openclash/core/clash
           chmod +x /etc/openclash/core/clash
+          
           echo "===> 安装完成。"
           EOF
           chmod +x openclash-build/install.sh
