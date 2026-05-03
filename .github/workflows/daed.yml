@@ -1,4 +1,4 @@
-name: 构建 Daed .run 安装包
+name: Make Daed run files
 
 on:
   workflow_dispatch:
