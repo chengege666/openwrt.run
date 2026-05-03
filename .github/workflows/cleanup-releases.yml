@@ -1,4 +1,4 @@
-name: Cleanup Old Releases
+name: 删除所有 Releases、Tags 和已完成工作流记录
 
 on:
   workflow_dispatch:

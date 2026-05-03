@@ -1,4 +1,4 @@
-name: Auto Run All Workflows
+name: 触发所有工作流
 
 on:
   schedule:
