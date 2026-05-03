@@ -22,6 +22,7 @@
 | `MosDNS` | `.github/workflows/mosdns.yml` | `.run` | 打包 `mosdns`、`v2dat`、`luci-app-mosdns` 等文件 |
 | `OpenClash` | `.github/workflows/openclash.yml` | `.run` | 拉取 OpenClash 包与核心后打包 |
 | `AdGuardHome` | `.github/workflows/adg.yml` | `.run` | 打包 LuCI 插件与官方核心 |
+| `SSR-Plus` | `.github/workflows/ssrp.yml` | 多架构 `.run` | 下载 `luci-app-ssr-plus` 并打包 |
 | `Argon Theme` | `.github/workflows/Argon.yml` | `.run` | 打包纯主题安装包 |
 
 ## 目录结构
