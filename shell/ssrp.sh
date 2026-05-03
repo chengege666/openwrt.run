@@ -9,10 +9,7 @@ safe_download() {
     output="$2"
 
     echo "Downloading: $url"
-    wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "$url" || \
-    wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://ghproxy.com/$url" || \
-    wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://mirror.ghproxy.com/$url"
-
+    wget -q --timeout=15 --tries=3 -O "$output" "$url"
     test -s "$output"
 }
 
@@ -28,7 +25,7 @@ for platform in $PLATFORMS; do
     echo "Preparing platform: $platform"
     mkdir -p "$platform"
 
-    index_html="$(curl -fsSL "${feed_url}/")"
+    index_html="$(curl -fsSL --connect-timeout 15 --max-time 30 "${feed_url}/")"
     ssrp_app="$(find_latest_file "$index_html" 'luci-app-ssr-plus_[^"< ]*_all\.ipk')"
 
     [ -n "$ssrp_app" ] || { echo "Error: luci-app-ssr-plus not found for ${platform}"; exit 1; }
