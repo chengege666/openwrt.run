@@ -20,22 +20,27 @@ jobs:
 
       - name: Download ipk files
         run: |
-          # 定义需要抓取的关键包前缀
+          # 增加匹配范围，确保能抓到不同架构的后缀
           FILE_PREFIXES=("luci-app-turboacc" "turboacc" "nft-nftables" "tcping" "dns2tcp" "dns2socks" "pdnsd-alt")
-          
           BASE_URLS=("https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/" "https://dl.openwrt.ai/packages-24.10/aarch64_cortex-a53/kiddin9/")
           DIRS=("x86_64" "a53")
 
           for i in {0..1}; do
             URL="${BASE_URLS[$i]}"
             TARGET_DIR="${DIRS[$i]}/depends"
-            echo "Fetching from $URL"
+            echo "正在从 $URL 获取文件列表..."
             
+            # 获取页面所有链接，匹配前缀后下载
             wget -qO- "$URL" | grep -oP 'href="\K[^"]*"' | while read -r FILE; do
               for PREFIX in "${FILE_PREFIXES[@]}"; do
                 if [[ "$FILE" == "$PREFIX"* ]]; then
-                  echo "Downloading $FILE"
-                  curl -L --fail "${URL}${FILE}" -o "$TARGET_DIR/$FILE" -#
+                  echo "Downloading: $FILE"
+                  curl -L --retry 2 --connect-timeout 10 "${URL}${FILE}" -o "$TARGET_DIR/$FILE" -#
+                  # 检查是否下载成功（文件大小是否大于0），失败则删除
+                  if [ ! -s "$TARGET_DIR/$FILE" ]; then
+                    echo "警告: $FILE 下载失败或为空，已跳过。"
+                    rm -f "$TARGET_DIR/$FILE"
+                  fi
                 fi
               done
             done
@@ -43,13 +48,18 @@ jobs:
 
       - name: List and organize packages
         run: |
-          mv x86_64/depends/luci-app-turboacc*.ipk x86_64/
-          mv a53/depends/luci-app-turboacc*.ipk a53/
+          # 将主程序移动到根目录，依赖包留在 depends 文件夹
+          mv x86_64/depends/luci-app-turboacc*.ipk x86_64/ || echo "x86主程序未找到"
+          mv a53/depends/luci-app-turboacc*.ipk a53/ || echo "a53主程序未找到"
+          echo "=== 整理完成 ==="
+          ls -R
 
       - name: Parse version
         id: setver
         run: |
-          VERSION=$(ls a53/luci-app-turboacc*.ipk | grep -oP '(?<=turboacc_)[^_]+')
+          # 从文件名中提取版本号
+          FILE=$(ls a53/luci-app-turboacc*.ipk | head -n 1)
+          VERSION=$(echo "$FILE" | grep -oP '(?<=turboacc_)[^_]+')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Detected version: $VERSION"
 
@@ -61,10 +71,10 @@ jobs:
           echo "===> 正在更新软件源..."
           opkg update
           echo "===> 正在安装依赖..."
-          opkg install depends/*.ipk --force-depends
-          echo "===> 正在安装 TurboACC..."
+          opkg install depends/*.ipk --force-depends || true
+          echo "===> 正在安装 TurboACC 主程序..."
           opkg install luci-app-turboacc*.ipk --force-depends
-          echo "===> 安装完成！请在后台刷新页面。"
+          echo "===> 安装完成！"
           EOF
           chmod +x install.sh
           cp install.sh x86_64/
