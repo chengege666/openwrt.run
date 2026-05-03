@@ -12,39 +12,40 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Delete all releases and tags
+      - name: Delete all releases, tags and old workflow runs
         run: |
-          echo "正在删除所有 Release 和 Tag..."
           OWNER="${{ github.repository_owner }}"
           REPO="${{ github.event.repository.name }}"
+          echo "仓库: $OWNER/$REPO"
 
-          gh release list --repo "$OWNER/$REPO" --limit 200 --json tagName --jq '.[].tagName' | while read tag; do
-            echo "删除 Release: $tag"
-            gh release delete "$tag" --repo "$OWNER/$REPO" -y
+          echo ""
+          echo "=== 删除所有 Release ==="
+          gh api "repos/$OWNER/$REPO/releases?per_page=100" --jq '.[].id' | while read id; do
+            [ -z "$id" ] && continue
+            echo "删除 Release ID: $id"
+            gh api -X DELETE "repos/$OWNER/$REPO/releases/$id" || echo "  失败: $id"
           done
 
-          gh api "repos/$OWNER/$REPO/tags" --jq '.[].name' | while read tag; do
+          echo ""
+          echo "=== 删除所有 Tag ==="
+          gh api "repos/$OWNER/$REPO/tags?per_page=100" --jq '.[].name' | while read tag; do
+            [ -z "$tag" ] && continue
             echo "删除 Tag: $tag"
-            gh api -X DELETE "repos/$OWNER/$REPO/git/refs/tags/$tag"
+            gh api -X DELETE "repos/$OWNER/$REPO/git/refs/tags/$tag" || echo "  失败: $tag"
           done
 
-          echo "Release/Tag 清理完成！"
-
-      - name: Delete completed workflow runs older than 1 hour
-        run: |
-          echo "正在删除超过 1 小时的已完成工作流..."
-          OWNER="${{ github.repository_owner }}"
-          REPO="${{ github.event.repository.name }}"
+          echo ""
+          echo "=== 删除超过 1 小时的已完成工作流 ==="
           CUTOFF_EPOCH=$(date -u -d '-1 hour' '+%s')
-
-          gh run list --repo "$OWNER/$REPO" --limit 200 --json databaseId,conclusion,updatedAt | \
-          jq -c --argjson cutoff "$CUTOFF_EPOCH" '.[] | select(.conclusion != null and ((.updatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdate) < $cutoff)) | .databaseId' | \
+          gh api "repos/$OWNER/$REPO/actions/runs?per_page=100&status=completed" --jq '.workflow_runs[] | select(.updated_at != null) | {id, updated_at}' | \
+          jq -c --argjson cutoff "$CUTOFF_EPOCH" 'select((.updated_at | sub("\\.[0-9]+Z$"; "Z") | fromdate) < $cutoff) | .id' | \
           while read id; do
             [ -z "$id" ] && continue
             echo "删除工作流记录: $id"
-            gh run delete "$id" --repo "$OWNER/$REPO" -y || true
+            gh api -X DELETE "repos/$OWNER/$REPO/actions/runs/$id" || echo "  失败: $id"
           done
 
-          echo "工作流记录清理完成！"
+          echo ""
+          echo "清理完成！"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
