@@ -1,0 +1,32 @@
+name: Cleanup Old Releases
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Delete all releases and tags
+        run: |
+          echo "正在删除所有 Release 和 Tag..."
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+
+          gh release list --repo "$OWNER/$REPO" --limit 200 --json tagName --jq '.[].tagName' | while read tag; do
+            echo "删除 Release: $tag"
+            gh release delete "$tag" --repo "$OWNER/$REPO" -y
+          done
+
+          gh api "repos/$OWNER/$REPO/tags" --jq '.[].name' | while read tag; do
+            echo "删除 Tag: $tag"
+            gh api -X DELETE "repos/$OWNER/$REPO/git/refs/tags/$tag"
+          done
+
+          echo "清理完成！"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
