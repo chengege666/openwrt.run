@@ -25,6 +25,7 @@
 | `SSR-Plus` | `.github/workflows/ssrp.yml` | 多架构 `.run` | 从 kiddin9 feed 下载 SSR-Plus 全量依赖并打包 |
 | `PassWall2` | `.github/workflows/passwall2.yml` | 多架构 `.run` | 从上游 GitHub Release 下载主包 + 官方依赖 zip 并打包 |
 | `Argon Theme` | `.github/workflows/Argon.yml` | `.run` | 打包纯主题安装包 |
+| `Dae` | `.github/workflows/daed.yml` | 多架构 `.run` | 下载 `luci-app-daed`、`daed` 及相关数据包并打包 |
 
 ## 目录结构
 

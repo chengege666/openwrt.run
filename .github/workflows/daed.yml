@@ -1,63 +1,75 @@
-name: Build daed .run Installer
+name: Make Dae run files
 
 on:
   workflow_dispatch:
-    inputs:
-      script_path:
-        description: '仓库中用于下载 ipk 的脚本路径'
-        required: true
-        default: 'scripts/download_ipks.sh'
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install makeself and curl
         run: |
           sudo apt-get update
           sudo apt-get install -y makeself curl
 
-      - name: Run download script
+      - name: Download ipk packages
         run: |
-          chmod +x ${{ github.event.inputs.script_path }}
-          ./${{ github.event.inputs.script_path }}
+          chmod +x shell/daed.sh
+          ./shell/daed.sh
 
-      - name: Build .run packages
+      - name: Copy install.sh and list files
         run: |
-          mkdir -p output
-          # 假设脚本下载后结构为：./dist/x86_64/*.ipk 等
-          for dir in dist/*/; do
-            [ -d "$dir" ] || continue
-            platform=$(basename "$dir")
-            
-            # 4. 复制 install.sh
-            cp install.sh "$dir"
-            
-            # 5 & 7. 提取版本号并清理 (匹配 daed_0.x.x~xxx.ipk 格式)
-            # 使用 sed 清理 ~ 及其后内容
-            first_ipk=$(ls "$dir"/*.ipk | head -n 1)
-            full_name=$(basename "$first_ipk")
-            clean_version=$(echo "$full_name" | sed -E 's/daed_([0-9.]+).*/\1/')
-            
-            # 将版本号存入环境变量以便 Release 使用
-            echo "CLEAN_VERSION=$clean_version" >> $GITHUB_ENV
-            
-            # 6. 打包
-            makeself "$dir" "output/daed-${clean_version}-${platform}.run" "daed-installer" ./install.sh
+          chmod +x shell/daed-install.sh
+          for platform in x86_64 aarch64_generic aarch64_cortex-a53; do
+            if [ -d "$platform" ]; then
+              echo "=== $platform contents ==="
+              ls -lh "$platform/" 2>/dev/null || echo "  (empty)"
+              [ -f "$platform/depends/luci-app-daed"*.ipk ] && mv "$platform/depends/luci-app-daed"*.ipk "$platform/" 2>/dev/null || true
+              [ -f "$platform/depends/luci-app-dae"*.ipk ] && mv "$platform/depends/luci-app-dae"*.ipk "$platform/" 2>/dev/null || true
+              cp shell/daed-install.sh "$platform/install.sh"
+              chmod +x "$platform/install.sh"
+            fi
           done
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Parse version
+        id: setver
+        run: |
+          for platform in x86_64 aarch64_generic aarch64_cortex-a53; do
+            for file in "$platform"/luci-app-daed*.ipk "$platform"/luci-app-dae*.ipk; do
+              if [ -f "$file" ]; then
+                  base=${file##*/}
+                  tmp=${base#*_}
+                  version=${tmp%_all.ipk}
+                  version=${version%%~*}
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+                  echo "Raw: $base → Cleaned: $version"
+                  break 2
+              fi
+            done
+          done
+
+      - name: Create .run packages
+        run: |
+          mkdir -p output
+          VERSION="${{ steps.setver.outputs.version }}"
+          echo "Using version: $VERSION"
+          for platform in x86_64 aarch64_generic aarch64_cortex-a53; do
+            if [ -d "$platform" ] && [ "$(ls -A "$platform"/*.ipk 2>/dev/null)" ]; then
+              makeself "$platform" "output/dae-${VERSION}_${platform}.run" "dae ${platform} Installer v${VERSION}" ./install.sh
+            fi
+          done
+          ls -lh output/
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: daed-${{ env.CLEAN_VERSION }}
-          name: daed ${{ env.CLEAN_VERSION }}
+          tag_name: dae-${{ steps.setver.outputs.version }}
+          name: dae-${{ steps.setver.outputs.version }}
           files: output/*.run
-          body: "Automated build for daed version ${{ env.CLEAN_VERSION }}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
