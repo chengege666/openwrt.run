@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   cleanup:
@@ -27,6 +28,23 @@ jobs:
             gh api -X DELETE "repos/$OWNER/$REPO/git/refs/tags/$tag"
           done
 
-          echo "清理完成！"
+          echo "Release/Tag 清理完成！"
+
+      - name: Delete completed workflow runs older than 1 hour
+        run: |
+          echo "正在删除超过 1 小时的已完成工作流..."
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          CUTOFF_EPOCH=$(date -u -d '-1 hour' '+%s')
+
+          gh run list --repo "$OWNER/$REPO" --limit 200 --json databaseId,conclusion,updatedAt | \
+          jq -c --argjson cutoff "$CUTOFF_EPOCH" '.[] | select(.conclusion != null and ((.updatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdate) < $cutoff)) | .databaseId' | \
+          while read id; do
+            [ -z "$id" ] && continue
+            echo "删除工作流记录: $id"
+            gh run delete "$id" --repo "$OWNER/$REPO" -y || true
+          done
+
+          echo "工作流记录清理完成！"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
