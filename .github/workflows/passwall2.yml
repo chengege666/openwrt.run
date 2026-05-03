@@ -1,0 +1,104 @@
+name: Make PassWall2 run files
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y makeself curl jq unzip
+
+      - name: Get latest release info
+        id: release
+        run: |
+          RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/Openwrt-Passwall/openwrt-passwall2/releases/latest)"
+          TAG="$(echo "$RELEASE_JSON" | jq -r '.tag_name')"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Latest tag: $TAG"
+
+          ASSETS_JSON="$(echo "$RELEASE_JSON" | jq -c '.assets[]')"
+          echo "$ASSETS_JSON" > /tmp/pw2_assets.json
+
+      - name: Download packages
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          BASE="https://github.com/Openwrt-Passwall/openwrt-passwall2/releases/download/$TAG"
+
+          echo "Downloading luci-app-passwall2"
+          LUCI_URL="$(cat /tmp/pw2_assets.json | jq -r 'select(.name | test("luci-app-passwall2_.*\\.ipk$")) | .browser_download_url' | head -1)"
+          curl -L --fail "$LUCI_URL" -o luci-app-passwall2.ipk -#
+          test -s luci-app-passwall2.ipk
+
+          echo "Downloading luci-i18n-passwall2-zh-cn"
+          I18N_URL="$(cat /tmp/pw2_assets.json | jq -r 'select(.name | test("luci-i18n-passwall2-zh-cn_.*\\.ipk$")) | .browser_download_url' | head -1)"
+          curl -L --fail "$I18N_URL" -o luci-i18n-passwall2-zh-cn.ipk -#
+          test -s luci-i18n-passwall2-zh-cn.ipk
+
+          for ARCH in x86_64 aarch64_cortex-a53 aarch64_generic; do
+            ZIP_NAME="passwall_packages_ipk_${ARCH}.zip"
+            ZIP_URL="$(cat /tmp/pw2_assets.json | jq -r --arg n "$ZIP_NAME" 'select(.name == $n) | .browser_download_url' | head -1)"
+
+            if [ -z "$ZIP_URL" ]; then
+              echo "Warning: $ZIP_NAME not found, skipping $ARCH"
+              continue
+            fi
+
+            echo "Downloading $ZIP_NAME"
+            mkdir -p "$ARCH/depends"
+            curl -L --fail "$ZIP_URL" -o "/tmp/${ZIP_NAME}" -#
+            unzip -qo "/tmp/${ZIP_NAME}" -d "$ARCH/depends/"
+            rm -f "/tmp/${ZIP_NAME}"
+            cp luci-app-passwall2.ipk "$ARCH/"
+            cp luci-i18n-passwall2-zh-cn.ipk "$ARCH/"
+            echo "$ARCH prepared:"
+            ls -lh "$ARCH/"
+            ls -lh "$ARCH/depends/" | head -20
+          done
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > x86_64/install.sh
+          #!/bin/sh
+          set -e
+          echo "===> 正在更新软件源..."
+          opkg update
+          echo "===> 正在安装 PassWall2 依赖包..."
+          opkg install depends/*.ipk --force-depends
+          echo "===> 正在安装 PassWall2 主程序..."
+          opkg install *.ipk --force-depends
+          echo "===> 安装完成！"
+          EOF
+          chmod +x x86_64/install.sh
+          cp x86_64/install.sh aarch64_cortex-a53/install.sh
+          cp x86_64/install.sh aarch64_generic/install.sh
+
+      - name: Extract version and pack
+        id: pack
+        run: |
+          mkdir -p output
+          VERSION="${{ steps.release.outputs.tag }}"
+
+          for ARCH in x86_64 aarch64_cortex-a53 aarch64_generic; do
+            [ -d "$ARCH" ] || continue
+            makeself "$ARCH" "output/luci-app-passwall2-${VERSION}_${ARCH}.run" \
+              "PassWall2 ${ARCH} Installer v${VERSION}" ./install.sh
+          done
+
+          ls -lh output/
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: passwall2-${{ steps.release.outputs.tag }}
+          name: PassWall2-${{ steps.release.outputs.tag }}
+          body_path: ${{ github.workspace }}/info/passwall2.md
+          files: output/*.run
