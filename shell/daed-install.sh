@@ -17,20 +17,6 @@ cd "$SCRIPT_DIR"
 log "正在更新软件源..."
 opkg update
 
-log "正在安装依赖包..."
-if [ -d depends ] && [ "$(ls -A depends/*.ipk 2>/dev/null)" ]; then
-    opkg install depends/*.ipk --force-depends || true
-else
-    log "没有找到依赖包目录，跳过"
-fi
-
-log "验证中文翻译包是否安装..."
-if opkg list-installed | grep -q 'luci-i18n-daed-zh-cn'; then
-    log "中文翻译包已安装"
-else
-    log "警告：中文翻译包未安装，界面可能显示为英文"
-fi
-
 log "正在安装 Daed 主程序..."
 for ipk in *.ipk; do
     [ -f "$ipk" ] || continue
@@ -39,6 +25,18 @@ done
 
 if ! opkg list-installed | grep -q 'luci-app-daed'; then
     fail "未检测到 luci-app-daed 已安装。"
+fi
+
+log "正在安装依赖包..."
+if [ -d depends ] && [ "$(ls -A depends/*.ipk 2>/dev/null)" ]; then
+    opkg install depends/*.ipk --force-depends || true
+fi
+
+log "验证中文翻译包是否安装..."
+if opkg list-installed | grep -q 'luci-i18n-daed-zh-cn'; then
+    log "中文翻译包已安装"
+else
+    log "警告：中文翻译包未安装，界面可能显示为英文"
 fi
 
 log "刷新 LuCI 缓存..."
