@@ -19,41 +19,28 @@ jobs:
 
       - name: Get daed main app
         run: |
-          # 1. 获取 GitHub 最新 Release 的 Tag 名字
           VERSION=$(curl -s https://api.github.com/repos/QiuSimons/luci-app-daed/releases/latest | jq -r '.tag_name')
           echo "version=$VERSION" >> $GITHUB_ENV
-          echo "Latest version detected: $VERSION"
           
-          # 2. 精准抓取 assets 中以 .ipk 结尾的第一个文件的下载链接
+          # 获取 .ipk 下载链接
           URL=$(curl -s https://api.github.com/repos/QiuSimons/luci-app-daed/releases/latest | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
           
-          echo "Downloading from: $URL"
-          
-          # 3. 下载并存入目录 (QiuSimons 的包是 all 通用包，两个架构共用)
           curl -L --fail -o x86_64/luci-app-daed.ipk "$URL"
           cp x86_64/luci-app-daed.ipk a53/luci-app-daed.ipk
 
-      - name: Download core dependencies
+      - name: Download dependencies
         run: |
-          # 4. 从 openwrt.ai 获取 daed 的核心二进制和防火墙依赖
-          DEPS=("daed" "nft-nftables" "kmod-nft-tproxy")
+          # 只下载非内核模块的必要插件
+          DEPS=("daed" "nft-nftables" "dnsmasq-full")
           URL_X86="https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/"
           URL_A53="https://dl.openwrt.ai/packages-24.10/aarch64_cortex-a53/kiddin9/"
 
           for DEP in "${DEPS[@]}"; do
-            # 下载 x86 依赖
             FILE_X86=$(wget -qO- "$URL_X86" | grep -oP 'href="\K[^"]*\.ipk' | grep "$DEP" | head -n 1)
-            if [ -n "$FILE_X86" ]; then
-              echo "Downloading x86 dep: $FILE_X86"
-              curl -L --fail "${URL_X86}${FILE_X86}" -o "x86_64/depends/$FILE_X86"
-            fi
+            [ -n "$FILE_X86" ] && curl -L --fail "${URL_X86}${FILE_X86}" -o "x86_64/depends/$FILE_X86"
             
-            # 下载 a53 依赖
             FILE_A53=$(wget -qO- "$URL_A53" | grep -oP 'href="\K[^"]*\.ipk' | grep "$DEP" | head -n 1)
-            if [ -n "$FILE_A53" ]; then
-              echo "Downloading a53 dep: $FILE_A53"
-              curl -L --fail "${URL_A53}${FILE_A53}" -o "a53/depends/$FILE_A53"
-            fi
+            [ -n "$FILE_A53" ] && curl -L --fail "${URL_A53}${FILE_A53}" -o "a53/depends/$FILE_A53"
           done
 
       - name: Create install.sh
@@ -61,12 +48,17 @@ jobs:
           cat << 'EOF' > install.sh
           #!/bin/sh
           set -e
-          echo "===> 更新软件源..."
-          opkg update
-          echo "===> 安装依赖组件 (如有失败会尝试跳过)..."
-          opkg install depends/*.ipk --force-depends || true
-          echo "===> 安装 daed 主程序..."
-          opkg install luci-app-daed.ipk --force-depends
+          echo "===> 正在更新软件源以获取内核模块..."
+          opkg update || true
+          
+          echo "===> 正在安装依赖组件..."
+          # 增加 force-architecture 强制绕过架构检查，force-depends 忽略依赖缺失
+          opkg install depends/*.ipk --force-depends --force-maintainer --force-architecture || true
+          
+          echo "===> 正在安装 daed 主程序..."
+          opkg install luci-app-daed.ipk --force-depends --force-maintainer --force-architecture
+          
+          echo "===> 提示: 若 daed 无法启动，请在后台系统->软件包中手动安装 kmod-nft-tproxy"
           echo "===> 安装完成！"
           EOF
           chmod +x install.sh
