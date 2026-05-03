@@ -19,33 +19,35 @@ jobs:
 
       - name: Get daed main app
         run: |
-          LATEST_JSON=$(curl -s https://api.github.com/repos/QiuSimons/luci-app-daed/releases/latest)
-          VERSION=$(echo "$LATEST_JSON" | jq -r '.tag_name')
+          # 直接抓取 GitHub Releases 页面源码并匹配 .ipk 链接
+          RELEASE_URL="https://github.com/QiuSimons/luci-app-daed/releases/latest"
+          # 匹配链接并转换为完整下载地址
+          URL=$(wget -qO- "$RELEASE_URL" | grep -oP '/QiuSimons/luci-app-daed/releases/download/[^/]+/luci-app-daed[^"]*\.ipk' | head -n 1)
+          FULL_URL="https://github.com$URL"
+          
+          # 提取版本号
+          VERSION=$(echo "$URL" | awk -F'/' '{print $(NF-1)}')
           echo "version=$VERSION" >> $GITHUB_ENV
           
-          # 获取 .ipk 下载链接
-          URL=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url')
-          curl -L -o x86_64/luci-app-daed.ipk "$URL"
+          echo "Downloading from: $FULL_URL"
+          curl -L --fail -o x86_64/luci-app-daed.ipk "$FULL_URL"
           cp x86_64/luci-app-daed.ipk a53/luci-app-daed.ipk
 
       - name: Download core dependencies
         run: |
-          # daed 依赖 daed 和 nft-nftables 等核心组件
-          # 从 openwrt.ai 对应架构下载
+          # 从 openwrt.ai 自动抓取核心依赖
           DEPS=("daed" "nft-nftables" "kmod-nft-tproxy")
-          BASE_URLS=("https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/" "https://dl.openwrt.ai/packages-24.10/aarch64_cortex-a53/kiddin9/")
-          DIRS=("x86_64" "a53")
+          URL_X86="https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/"
+          URL_A53="https://dl.openwrt.ai/packages-24.10/aarch64_cortex-a53/kiddin9/"
 
-          for i in {0..1}; do
-            URL="${BASE_URLS[$i]}"
-            TARGET_DIR="${DIRS[$i]}/depends"
-            for DEP in "${DEPS[@]}"; do
-              # 搜索并下载对应依赖
-              FILE=$(wget -qO- "$URL" | grep -oP "href=\"\K$DEP[^>]*\.ipk" | head -n 1)
-              if [ ! -z "$FILE" ]; then
-                curl -L --fail "${URL}${FILE}" -o "$TARGET_DIR/$FILE"
-              fi
-            done
+          for DEP in "${DEPS[@]}"; do
+            # 下载 x86 依赖
+            FILE_X86=$(wget -qO- "$URL_X86" | grep -oP "$DEP[^>]*\.ipk" | head -n 1)
+            [ ! -z "$FILE_X86" ] && curl -L --fail "${URL_X86}${FILE_X86}" -o "x86_64/depends/$FILE_X86"
+            
+            # 下载 a53 依赖
+            FILE_A53=$(wget -qO- "$URL_A53" | grep -oP "$DEP[^>]*\.ipk" | head -n 1)
+            [ ! -z "$FILE_A53" ] && curl -L --fail "${URL_A53}${FILE_A53}" -o "a53/depends/$FILE_A53"
           done
 
       - name: Create install.sh
@@ -53,13 +55,13 @@ jobs:
           cat << 'EOF' > install.sh
           #!/bin/sh
           set -e
+          echo "===> 更新软件源..."
           opkg update
-          # 先安装依赖
-          if [ -d "depends" ]; then
-            opkg install depends/*.ipk --force-depends || true
-          fi
-          # 再安装主程序
+          echo "===> 安装依赖..."
+          opkg install depends/*.ipk --force-depends || true
+          echo "===> 安装 daed 主程序..."
           opkg install luci-app-daed.ipk --force-depends
+          echo "===> 安装完成！"
           EOF
           chmod +x install.sh
           cp install.sh x86_64/
@@ -78,4 +80,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: daed-${{ env.version }}
+          name: DAED-${{ env.version }}
           files: output/*.run
