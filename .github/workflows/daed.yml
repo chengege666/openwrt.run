@@ -1,4 +1,4 @@
-name: Make Dae run files
+name: Make Daed run files
 
 on:
   workflow_dispatch:
