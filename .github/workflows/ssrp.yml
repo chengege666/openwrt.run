@@ -7,52 +7,170 @@ permissions:
   contents: write
 
 jobs:
-  make-run:
+  build:
     runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Create directories
+        run: |
+          mkdir -p x86_64/depends a53/depends
+          wget -O x86_64/depends/libopenssl3.ipk https://github.com/wkccd/build/releases/download/pw1/libopenssl3_3.0.16-1_x86_64.ipk
+          wget -O a53/depends/libopenssl3.ipk https://github.com/wkccd/build/releases/download/pw1/libopenssl3_3.0.16-1_aarch64_cortex-a53.ipk
+
+      - name: Download ipk files
+        run: |
+          FILE_PREFIXES=("shadowsocks-libev-ss-server" "dns2tcp" "lua-neturl" "chinadns-ng" "dns2socks" "hysteria" "ipt2socks" "microsocks" "mosdns" "naiveproxy" "redsocks2" "shadowsocksr-libev" "shadowsocks-rust" "shadow-tls" "simple-obfs-client" "tcping" "trojan" "tuic-client" "v2ray-plugin" "xray-core" "luci-app-ssr-plus")
+          EXCLUDE_PREFIXES=("luci-app-chinadns-ng" "luci-app-microsocks" "luci-app-mosdns" "luci-app-naiveproxy" "luci-app-redsocks2" "luci-app-shadowsocks")
+
+          BASE_URL_X86="https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/"
+          echo "Fetching x86 directory page from $BASE_URL_X86"
+          wget -qO- "$BASE_URL_X86" | \
+          while IFS= read -r LINE; do
+              for PREFIX in "${FILE_PREFIXES[@]}"; do
+                  if [[ "$LINE" == *"$PREFIX"* ]]; then
+                      FILE=$(echo "$LINE" | grep -oP 'href="\K[^"]*')
+                      if [[ -z "$FILE" ]]; then
+                          continue
+                      fi
+                      exclude_file=false
+                      for exclude_prefix in "${EXCLUDE_PREFIXES[@]}"; do
+                          if [[ "$FILE" == $exclude_prefix* ]]; then
+                              exclude_file=true
+                              break
+                          fi
+                      done
+                      if $exclude_file; then
+                          echo "Skip file: $FILE"
+                          continue
+                      fi
+                      FILE_URL="${BASE_URL_X86}${FILE}"
+                      echo "Found file: $FILE_URL"
+                      curl -L --fail "$FILE_URL" -o "x86_64/depends/$(basename $FILE_URL)" -#
+                  fi
+              done
+          done
+
+          BASE_URL_A53="https://dl.openwrt.ai/packages-24.10/aarch64_cortex-a53/kiddin9/"
+          echo "Fetching a53 directory page from $BASE_URL_A53"
+          wget -qO- "$BASE_URL_A53" | \
+          while IFS= read -r LINE; do
+              for PREFIX in "${FILE_PREFIXES[@]}"; do
+                  if [[ "$LINE" == *"$PREFIX"* ]]; then
+                      FILE=$(echo "$LINE" | grep -oP 'href="\K[^"]*')
+                      if [[ -z "$FILE" ]]; then
+                          continue
+                      fi
+                      exclude_file=false
+                      for exclude_prefix in "${EXCLUDE_PREFIXES[@]}"; do
+                          if [[ "$FILE" == $exclude_prefix* ]]; then
+                              exclude_file=true
+                              break
+                          fi
+                      done
+                      if $exclude_file; then
+                          echo "Skip file: $FILE"
+                          continue
+                      fi
+                      FILE_URL="${BASE_URL_A53}${FILE}"
+                      echo "Found file: $FILE_URL"
+                      curl -L --fail "$FILE_URL" -o "a53/depends/$(basename $FILE_URL)" -#
+                  fi
+              done
+          done
+
+      - name: Download libudns
+        run: |
+          FILE_PREFIXES=("libudns")
+          BASE_URL_X86="https://dl.openwrt.ai/packages-24.10/x86_64/packages/"
+          wget -qO- "$BASE_URL_X86" | \
+          while IFS= read -r LINE; do
+              for PREFIX in "${FILE_PREFIXES[@]}"; do
+                  if [[ "$LINE" == *"$PREFIX"* ]]; then
+                      FILE=$(echo "$LINE" | grep -oP 'href="\K[^"]*')
+                      if [[ -z "$FILE" ]]; then
+                          continue
+                      fi
+                      FILE_URL="${BASE_URL_X86}${FILE}"
+                      echo "Found file: $FILE_URL"
+                      curl -L --fail "$FILE_URL" -o "x86_64/depends/$(basename $FILE_URL)" -#
+                  fi
+              done
+          done
+          BASE_URL_A53="https://dl.openwrt.ai/packages-24.10/aarch64_cortex-a53/packages/"
+          wget -qO- "$BASE_URL_A53" | \
+          while IFS= read -r LINE; do
+              for PREFIX in "${FILE_PREFIXES[@]}"; do
+                  if [[ "$LINE" == *"$PREFIX"* ]]; then
+                      FILE=$(echo "$LINE" | grep -oP 'href="\K[^"]*')
+                      if [[ -z "$FILE" ]]; then
+                          continue
+                      fi
+                      FILE_URL="${BASE_URL_A53}${FILE}"
+                      echo "Found file: $FILE_URL"
+                      curl -L --fail "$FILE_URL" -o "a53/depends/$(basename $FILE_URL)" -#
+                  fi
+              done
+          done
+
+      - name: List and organize packages
+        run: |
+          echo "List x86 depends"
+          ls -lh x86_64/depends/
+          echo "List a53 depends"
+          ls -lh a53/depends/
+          mv x86_64/depends/luci-app-ssr-plus*.ipk x86_64/
+          mv a53/depends/luci-app-ssr-plus*.ipk a53/
+          echo "x86_64 dir:"
+          ls x86_64/
+          echo "a53 dir:"
+          ls a53/
+
+      - name: Parse version
+        id: setver
+        run: |
+          for file in a53/luci-app-ssr-plus*.ipk; do
+              base=${file##*/}
+              tmp=${base#*_}
+              tmp=${tmp%_all.ipk}
+              version=${tmp/-/_}
+              echo "version=$version" >> "$GITHUB_OUTPUT"
+              echo "version=$version" >> $GITHUB_ENV
+              echo "$version"
+              break
+          done
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > x86_64/install.sh
+          #!/bin/sh
+          set -e
+          echo "===> 正在更新软件源..."
+          opkg update
+          echo "===> 正在安装依赖包..."
+          opkg install depends/*.ipk --force-depends
+          echo "===> 正在安装 SSR-Plus 主程序..."
+          opkg install *.ipk --force-depends
+          echo "===> 安装完成！"
+          EOF
+          chmod +x x86_64/install.sh
+          cp x86_64/install.sh a53/
+
       - name: Install makeself
-        run: sudo apt-get update && sudo apt-get install -y makeself curl
+        run: sudo apt-get update && sudo apt-get install -y makeself
 
-      - name: Download SSR-Plus packages
-        run: |
-          chmod +x shell/ssrp.sh
-          ./shell/ssrp.sh
-
-      - name: Copy install.sh
-        run: |
-          chmod +x shell/ssrp-install.sh
-          cp shell/ssrp-install.sh x86_64/install.sh
-          cp shell/ssrp-install.sh aarch64_generic/install.sh
-          cp shell/ssrp-install.sh aarch64_cortex-a53/install.sh
-
-      - name: Extract version and pack
-        id: pack
+      - name: Create .run packages
         run: |
           mkdir -p output
-
-          APP_IPK="$(ls aarch64_generic/luci-app-ssr-plus_*.ipk | head -n 1)"
-          VERSION="$(basename "$APP_IPK" | sed -n 's/^luci-app-ssr-plus_\(.*\)_all\.ipk$/\1/p')"
-
-          if [ -z "$VERSION" ]; then
-            echo "无法提取版本号"
-            exit 1
-          fi
-
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "$VERSION"
-
-          for PLATFORM in x86_64 aarch64_generic aarch64_cortex-a53; do
-            makeself "$PLATFORM" "output/luci-app-ssr-plus-${VERSION}_${PLATFORM}.run" \
-              "ssr-plus ${PLATFORM} Installer v${VERSION}" ./install.sh
-          done
+          makeself x86_64/ "output/ssrp_x86_64-${{ steps.setver.outputs.version }}.run" "SSR-Plus x86_64 Installer" ./install.sh
+          makeself a53/ "output/ssrp_aarch64_cortex-a53-${{ steps.setver.outputs.version }}.run" "SSR-Plus a53 Installer" ./install.sh
+          ls -lh output/
 
       - name: Upload release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "ssr-plus-${{ steps.pack.outputs.version }}"
-          name: "ssr-plus-${{ steps.pack.outputs.version }}"
+          tag_name: ssr-plus-${{ steps.setver.outputs.version }}
+          name: SSRP-${{ steps.setver.outputs.version }}
           files: output/*.run

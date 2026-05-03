@@ -12,35 +12,17 @@ fail() {
     exit 1
 }
 
-install_optional_pkg() {
-    pkg="$1"
-
-    if opkg list-installed | grep -q "^$pkg "; then
-        log "已安装依赖: $pkg"
-        return 0
-    fi
-
-    if opkg install "$pkg"; then
-        log "已安装依赖: $pkg"
-        return 0
-    fi
-
-    echo "警告：未能自动安装依赖 $pkg，请确认当前软件源是否提供该包。"
-    return 0
-}
-
-ls "$SCRIPT_DIR"/*.ipk >/dev/null 2>&1 || fail "未找到 SSR-Plus 安装包。"
+[ -d "$SCRIPT_DIR/depends" ] || fail "未找到 depends 目录，安装包可能不完整。"
+ls "$SCRIPT_DIR"/*.ipk >/dev/null 2>&1 || fail "未找到 SSR-Plus 主程序包。"
 
 log "正在更新软件源..."
 opkg update
 
-log "正在安装运行时依赖..."
-install_optional_pkg firewall4
-install_optional_pkg kmod-nft-tproxy
-install_optional_pkg kmod-nft-socket
+log "正在安装依赖包..."
+opkg install "$SCRIPT_DIR/depends"/*.ipk --force-depends || echo "警告：部分依赖包安装失败，继续尝试安装主程序..."
 
-log "正在安装本地 ipk 包..."
-opkg install "$SCRIPT_DIR"/*.ipk || fail "SSR-Plus 安装失败，请检查系统版本是否为 OpenWrt 23.05+，以及依赖源是否完整。"
+log "正在安装 SSR-Plus 主程序..."
+opkg install "$SCRIPT_DIR"/*.ipk --force-depends || fail "SSR-Plus 安装失败。"
 
 if ! opkg list-installed | grep -q '^luci-app-ssr-plus '; then
     fail "未检测到 luci-app-ssr-plus 已安装。"
@@ -56,7 +38,7 @@ log "重启相关服务..."
 if [ -f /usr/share/luci/menu.d/luci-app-ssr-plus.json ] || [ -f /usr/lib/lua/luci/controller/ssr-plus.lua ]; then
     log "已检测到 LuCI 入口文件。"
 else
-    echo "警告：未检测到传统 LuCI 入口文件，请手动刷新页面并检查“服务”菜单。"
+    echo "警告：未检测到 LuCI 入口文件，请手动刷新页面并检查“服务”菜单。"
 fi
 
 log "安装完成，请在 LuCI 中打开 SSR-Plus 继续配置。"
