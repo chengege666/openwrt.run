@@ -19,15 +19,19 @@ jobs:
 
       - name: Get latest release and download
         run: |
-          # 获取 GitHub API 最新版本数据
+          # 获取 JSON 数据
           LATEST_JSON=$(curl -s https://api.github.com/repos/QiuSimons/luci-app-daed/releases/latest)
           
-          # 提取下载链接
-          URL_X86=$(echo "$LATEST_JSON" | grep -oP 'https://github.com/QiuSimons/luci-app-daed/releases/download/[^/]+/luci-app-daed_.*_x86_64\.ipk')
-          URL_A53=$(echo "$LATEST_JSON" | grep -oP 'https://github.com/QiuSimons/luci-app-daed/releases/download/[^/]+/luci-app-daed_.*_aarch64_cortex-a53\.ipk')
-          VERSION=$(echo "$LATEST_JSON" | grep -oP '(?<="tag_name": ")[^"]+')
-          
+          # 使用 jq 提取 tag
+          VERSION=$(echo "$LATEST_JSON" | jq -r '.tag_name')
           echo "version=$VERSION" >> $GITHUB_ENV
+          
+          # 使用 jq 提取 browser_download_url 并通过 grep 筛选特定架构
+          # 这样比直接正则匹配 JSON 文本更安全
+          ASSETS_URLS=$(echo "$LATEST_JSON" | jq -r '.assets[].browser_download_url')
+          
+          URL_X86=$(echo "$ASSETS_URLS" | grep "x86_64.ipk" | head -n 1)
+          URL_A53=$(echo "$ASSETS_URLS" | grep "aarch64_cortex-a53.ipk" | head -n 1)
           
           echo "Downloading x86_64: $URL_X86"
           curl -L -o x86_64/luci-app-daed.ipk "$URL_X86"
@@ -43,7 +47,7 @@ jobs:
           echo "===> 正在更新软件源..."
           opkg update
           echo "===> 正在安装 daed..."
-          # daed 依赖较多，建议在联网环境下安装，系统会自动补全依赖
+          # daed 依赖较多，系统会自动从软件源补全
           opkg install luci-app-daed.ipk --force-depends
           echo "===> 安装完成！"
           EOF
