@@ -17,21 +17,25 @@ jobs:
 
       - name: Download Argon Theme
         run: |
-          echo "正在从 openwrt.ai 获取最新 Argon 主题..."
-          BASE_URL="https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/"
-          
-          # 只抓取主题包，忽略配置插件
-          THEME_IPK=$(curl -s $BASE_URL | grep -o 'luci-theme-argon_[^"]*\.ipk' | sort -V | tail -n 1)
-          
-          echo "下载清单: $THEME_IPK"
-          wget -q "$BASE_URL$THEME_IPK" -P argon-build/
+          echo "正在从 ImmortalWrt 官方源获取最新 Argon 主题..."
+          BASE_URL="https://downloads.immortalwrt.org/releases/24.10/packages/x86_64/luci/"
+
+          THEME_IPK=$(wget -qO- --timeout=15 "$BASE_URL" | grep -oP 'luci-theme-argon_[^"<]*\.ipk' | sort -V | tail -n 1)
+
+          if [ -z "$THEME_IPK" ]; then
+            echo "错误：未在官方源找到 luci-theme-argon"
+            exit 1
+          fi
+
+          echo "下载: $THEME_IPK"
+          wget -q --timeout=15 "$BASE_URL$THEME_IPK" -P argon-build/
+          test -s argon-build/"$THEME_IPK"
 
       - name: Create install.sh
         run: |
           cat << 'EOF' > argon-build/install.sh
           #!/bin/sh
           echo "===> 正在安装 Argon 主题..."
-          # 强制安装
           opkg install --force-depends *.ipk
           echo "===> 安装完成！请在系统界面选择 argon 主题。"
           EOF
@@ -42,11 +46,11 @@ jobs:
           ./makeself/makeself.sh argon-build/ Argon_Theme_Pure.run "Argon Theme Installer" ./install.sh
 
       - name: Set Tag Name
-        run: echo "TAG_NAME=Argon-Pure-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+        run: echo "TAG_NAME=argon-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
-          name: "Argon Theme Pure ${{ env.TAG_NAME }}"
+          name: "Argon Theme ${{ env.TAG_NAME }}"
           files: Argon_Theme_Pure.run

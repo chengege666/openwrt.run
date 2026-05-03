@@ -74,7 +74,7 @@ jobs:
       - name: Upload run file as release asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "Build_${{ env.LATEST_TAG }}"
+          tag_name: adguardhome-${{ env.LATEST_TAG }}
           name: "AdGuardHome-${{ env.LATEST_TAG }}"
           files: AdGuardHome_${{ env.LATEST_TAG }}_x86_64.run
           body: |

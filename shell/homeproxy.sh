@@ -7,12 +7,8 @@ PLATFORMS="x86_64 aarch64_generic aarch64_cortex-a53"
 safe_download() {
     url="$1"
     output="$2"
-
     echo "Downloading: $url"
-    wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "$url" || \
-    wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://ghproxy.com/$url" || \
-    wget -q --timeout=60 --tries=5 --retry-connrefused --waitretry=5 -O "$output" "https://mirror.ghproxy.com/$url"
-
+    curl -L --fail --connect-timeout 15 --max-time 60 "$url" -o "$output" -#
     test -s "$output"
 }
 
@@ -28,7 +24,7 @@ for platform in $PLATFORMS; do
     echo "Preparing platform: $platform"
     mkdir -p "$platform"
 
-    index_html="$(curl -fsSL "${feed_url}/")"
+    index_html="$(wget -qO- --timeout=15 "${feed_url}/")"
     homeproxy_file="$(find_latest_file "$index_html" 'luci-app-homeproxy_[^"< ]*_all\.ipk')"
     singbox_file="$(find_latest_file "$index_html" "sing-box_[^\"< ]*_${platform}\\.ipk")"
 
