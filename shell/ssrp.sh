@@ -1,7 +1,9 @@
 #!/bin/sh
 set -e
 
-BASE_URL="https://dl.openwrt.ai/packages-24.10"
+BASE_URL="${BASE_URL:-https://dl.openwrt.ai}"
+PACKAGE_VERSION="${PACKAGE_VERSION:-packages-24.10}"
+BASE_URL="${BASE_URL}/${PACKAGE_VERSION}"
 PLATFORMS="x86_64 aarch64_cortex-a53"
 
 FILE_PREFIXES="shadowsocks-libev-ss-server dns2tcp lua-neturl chinadns-ng dns2socks hysteria ipt2socks microsocks mosdns naiveproxy redsocks2 shadowsocksr-libev shadowsocks-rust shadow-tls simple-obfs-client tcping trojan tuic-client v2ray-plugin xray-core luci-app-ssr-plus"
