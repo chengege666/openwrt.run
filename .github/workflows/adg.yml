@@ -16,12 +16,10 @@ jobs:
       - name: Prepare Workspace
         run: |
           mkdir -p adg-x86_64
-          # 克隆 makeself 工具，用于制作真正的 .run 自解压格式
           git clone https://github.com/megastep/makeself.git
 
       - name: Fetch Latest Tags
         run: |
-          # 获取 AdGuardHome 官方最新的版本号
           LATEST_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r '.tag_name')
           echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
           echo "最新核心版本为: $LATEST_TAG"
@@ -31,14 +29,14 @@ jobs:
           # 1. 下载 AdGuardHome x86_64 核心
           wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${{ env.LATEST_TAG }}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
           
-          # 2. 智能解压
+          # 2. 解压
           mkdir -p temp_core
           tar -zxvf core.tar.gz -C temp_core
           
-          # 3. 使用 find 智能定位二进制文件，防止目录结构变动导致报错
+          # 3. 智能查找二进制文件并复制到打包目录
           find temp_core -type f -name "AdGuardHome" -exec cp {} adg-x86_64/ \;
           
-          # 4. 自动从 rufengsuixing 仓库获取最新的 luci-app-adguardhome ipk
+          # 4. 自动获取最新 luci-app-adguardhome ipk
           echo "正在自动获取最新插件..."
           LATEST_IPK_URL=$(curl -s https://api.github.com/repos/rufengsuixing/luci-app-adguardhome/releases/latest | jq -r '.assets[] | select(.name | endswith("all.ipk")) | .browser_download_url' | head -n 1)
           
@@ -51,16 +49,29 @@ jobs:
 
       - name: Create install.sh
         run: |
-          # 制作将在 OpenWrt 本地执行的安装脚本
           cat << 'EOF' > adg-x86_64/install.sh
           #!/bin/sh
           echo "===> 正在安装界面与语言包..."
           opkg install --force-depends *.ipk
           
           echo "===> 正在部署 AdGuardHome 核心..."
-          mkdir -p /usr/bin/AdGuardHome
-          [ -f "AdGuardHome" ] && cp AdGuardHome /usr/bin/AdGuardHome/AdGuardHome
-          chmod +x /usr/bin/AdGuardHome/AdGuardHome
+          # 删除可能存在的旧文件或错误目录
+          rm -rf /usr/bin/AdGuardHome
+          # 直接复制到正确位置（作为可执行文件）
+          cp AdGuardHome /usr/bin/AdGuardHome
+          # 赋予执行权限
+          chmod 0755 /usr/bin/AdGuardHome
+          
+          echo "===> 正在设置更新核心地址..."
+          # 等待 uci 配置生成后写入官方更新链接（保留变量占位符）
+          sleep 2
+          if uci show AdGuardHome >/dev/null 2>&1; then
+            uci set AdGuardHome.@adguardhome[0].core_update_url='https://github.com/AdguardTeam/AdGuardHome/releases/download/${Cloud_Version}/AdGuardHome_linux_${Arch}.tar.gz'
+            uci commit AdGuardHome
+            echo "更新地址已设置为官方源（含变量）。"
+          else
+            echo "AdGuardHome 配置未生成，请手动在 Web 界面设置升级链接。"
+          fi
           
           echo "===> AdGuardHome 安装完成！"
           EOF
@@ -68,7 +79,6 @@ jobs:
 
       - name: Create self-extracting .run package
         run: |
-          # 使用 makeself 将 adg-x86_64 文件夹打包为 .run 格式
           ./makeself/makeself.sh adg-x86_64/ AdGuardHome_${{ env.LATEST_TAG }}_x86_64.run "AdGuardHome by GitHub Actions" ./install.sh
 
       - name: Upload run file as release asset
@@ -81,4 +91,5 @@ jobs:
             ### AdGuardHome 自动化构建离线包
             - 核心版本: ${{ env.LATEST_TAG }}
             - 架构: x86_64
-            - 使用方式: 上传到 /tmp，执行 `chmod +x *.run && ./ *.run`
+            - 更新核心链接已自动写入 OpenWrt 配置，可直接使用。
+            - 使用方式: 上传到 /tmp，执行 `chmod +x *.run && ./*.run`
