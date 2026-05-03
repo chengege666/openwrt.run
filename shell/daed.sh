@@ -3,8 +3,8 @@ set -e
 
 BASE_URL="https://dl.openwrt.ai/packages-24.10"
 PLATFORMS="x86_64 aarch64_generic aarch64_cortex-a53"
-FILE_PREFIXES="daed daed-geoip daed-geosite luci-app-daed luci-app-dae"
-EXCLUDE_PREFIXES="luci-i18n-daed luci-i18n-dae"
+FILE_PREFIXES="daed daed-geoip daed-geosite luci-app-daed"
+EXCLUDE_PREFIXES="luci-i18n-daed"
 
 safe_download() {
     url="$1"

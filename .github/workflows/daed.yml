@@ -42,7 +42,7 @@ jobs:
         id: setver
         run: |
           for platform in x86_64 aarch64_generic aarch64_cortex-a53; do
-            for file in "$platform"/luci-app-daed*.ipk "$platform"/luci-app-dae*.ipk; do
+            for file in "$platform"/luci-app-daed*.ipk "$platform"/luci-app-dae*.ipk "$platform"/luci-app-dae*.ipk; do
               if [ -f "$file" ]; then
                   base=${file##*/}
                   tmp=${base#*_}
@@ -62,7 +62,7 @@ jobs:
           echo "Using version: $VERSION"
           for platform in x86_64 aarch64_generic aarch64_cortex-a53; do
             if [ -d "$platform" ] && [ "$(ls -A "$platform"/*.ipk 2>/dev/null)" ]; then
-              makeself "$platform" "output/dae-${VERSION}_${platform}.run" "dae ${platform} Installer v${VERSION}" ./install.sh
+              makeself "$platform" "output/daed-${VERSION}_${platform}.run" "daed ${platform} Installer v${VERSION}" ./install.sh
             fi
           done
           ls -lh output/
@@ -70,6 +70,6 @@ jobs:
       - name: Upload release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: dae-${{ steps.setver.outputs.version }}
-          name: dae-${{ steps.setver.outputs.version }}
+          tag_name: daed-${{ steps.setver.outputs.version }}
+          name: daed-${{ steps.setver.outputs.version }}
           files: output/*.run
