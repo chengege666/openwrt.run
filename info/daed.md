@@ -1,4 +1,4 @@
-# Dae .run
+# Daed .run
 
 - Source: `https://github.com/QiuSimons/luci-app-daed/releases`
 - Included packages: `daed` (binary), `luci-app-daed`, `luci-i18n-daed-zh-cn`
@@ -10,6 +10,6 @@
 Upload the generated `.run` file to `/tmp` and execute:
 
 ```sh
-chmod +x /tmp/dae-*.run
-/tmp/dae-*.run
+chmod +x /tmp/daed-*.run
+/tmp/daed-*.run
 ```

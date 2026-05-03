@@ -41,4 +41,4 @@ log "重启相关服务..."
 /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null
 /etc/init.d/rpcd restart 2>/dev/null
 
-log "安装完成，请在 LuCI 中打开 Dae 继续配置。"
+log "安装完成，请在 LuCI 中打开 Daed 继续配置。"
