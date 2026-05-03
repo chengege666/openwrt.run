@@ -1,7 +1,7 @@
 # Dae .run
 
-- Source feed: `https://dl.openwrt.ai/packages-24.10/<arch>/kiddin9/`
-- Included packages: `luci-app-daed`, `daed`, `daed-geoip`, `daed-geosite`
+- Source: `https://github.com/QiuSimons/luci-app-daed/releases`
+- Included packages: `daed` (binary), `luci-app-daed`, `luci-i18n-daed-zh-cn`
 - Supported architectures: `x86_64`, `aarch64_generic`, `aarch64_cortex-a53`
 - Runtime requirements: OpenWrt or ImmortalWrt `23.05+`
 

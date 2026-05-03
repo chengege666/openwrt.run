@@ -14,45 +14,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install makeself and curl
+      - name: Install makeself, curl and jq
         run: |
           sudo apt-get update
-          sudo apt-get install -y makeself curl
+          sudo apt-get install -y makeself curl jq
 
       - name: Download ipk packages
         run: |
           chmod +x shell/daed.sh
           ./shell/daed.sh
 
-      - name: Copy install.sh and list files
-        run: |
-          chmod +x shell/daed-install.sh
-          for platform in x86_64 aarch64_generic aarch64_cortex-a53; do
-            if [ -d "$platform" ]; then
-              echo "=== $platform contents ==="
-              ls -lh "$platform/" 2>/dev/null || echo "  (empty)"
-              [ -f "$platform/depends/luci-app-daed"*.ipk ] && mv "$platform/depends/luci-app-daed"*.ipk "$platform/" 2>/dev/null || true
-              [ -f "$platform/depends/luci-app-dae"*.ipk ] && mv "$platform/depends/luci-app-dae"*.ipk "$platform/" 2>/dev/null || true
-              cp shell/daed-install.sh "$platform/install.sh"
-              chmod +x "$platform/install.sh"
-            fi
-          done
-
-      - name: Parse version
+      - name: Read version and organize packages
         id: setver
         run: |
+          version="$(cat /tmp/daed_version.txt)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Cleaned version: $version"
+
           for platform in x86_64 aarch64_generic aarch64_cortex-a53; do
-            for file in "$platform"/luci-app-daed*.ipk "$platform"/luci-app-dae*.ipk "$platform"/luci-app-dae*.ipk; do
-              if [ -f "$file" ]; then
-                  base=${file##*/}
-                  tmp=${base#*_}
-                  version=${tmp%_all.ipk}
-                  version=${version%%~*}
-                  echo "version=$version" >> "$GITHUB_OUTPUT"
-                  echo "Raw: $base → Cleaned: $version"
-                  break 2
-              fi
-            done
+            if [ -d "$platform" ]; then
+              echo "=== $platform ==="
+              ls -lh "$platform/depends/" 2>/dev/null || true
+
+              # 移动 luci-app-daed 到根目录
+              [ -f "$platform/depends/luci-app-daed"*.ipk ] && mv "$platform/depends/luci-app-daed"*.ipk "$platform/" 2>/dev/null || true
+
+              # 复制 install.sh
+              cp shell/daed-install.sh "$platform/install.sh"
+              chmod +x "$platform/install.sh"
+
+              echo "--- $platform final ---"
+              ls -lh "$platform/"
+            fi
           done
 
       - name: Create .run packages
