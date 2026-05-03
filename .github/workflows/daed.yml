@@ -1,82 +1,63 @@
-name: Make daed run files
+name: Build daed .run Installer
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
+    inputs:
+      script_path:
+        description: '仓库中用于下载 ipk 的脚本路径'
+        required: true
+        default: 'scripts/download_ipks.sh'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create directories
-        run: mkdir -p x86_64/depends a53/depends
-
-      - name: Get daed main app
+      - name: Install dependencies
         run: |
-          VERSION=$(curl -s https://api.github.com/repos/QiuSimons/luci-app-daed/releases/latest | jq -r '.tag_name')
-          echo "version=$VERSION" >> $GITHUB_ENV
-          
-          # 获取 .ipk 下载链接
-          URL=$(curl -s https://api.github.com/repos/QiuSimons/luci-app-daed/releases/latest | jq -r '.assets[] | select(.name | endswith(".ipk")) | .browser_download_url' | head -n 1)
-          
-          curl -L --fail -o x86_64/luci-app-daed.ipk "$URL"
-          cp x86_64/luci-app-daed.ipk a53/luci-app-daed.ipk
+          sudo apt-get update
+          sudo apt-get install -y makeself curl
 
-      - name: Download dependencies
+      - name: Run download script
         run: |
-          # 只下载非内核模块的必要插件
-          DEPS=("daed" "nft-nftables" "dnsmasq-full")
-          URL_X86="https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/"
-          URL_A53="https://dl.openwrt.ai/packages-24.10/aarch64_cortex-a53/kiddin9/"
+          chmod +x ${{ github.event.inputs.script_path }}
+          ./${{ github.event.inputs.script_path }}
 
-          for DEP in "${DEPS[@]}"; do
-            FILE_X86=$(wget -qO- "$URL_X86" | grep -oP 'href="\K[^"]*\.ipk' | grep "$DEP" | head -n 1)
-            [ -n "$FILE_X86" ] && curl -L --fail "${URL_X86}${FILE_X86}" -o "x86_64/depends/$FILE_X86"
-            
-            FILE_A53=$(wget -qO- "$URL_A53" | grep -oP 'href="\K[^"]*\.ipk' | grep "$DEP" | head -n 1)
-            [ -n "$FILE_A53" ] && curl -L --fail "${URL_A53}${FILE_A53}" -o "a53/depends/$FILE_A53"
-          done
-
-      - name: Create install.sh
-        run: |
-          cat << 'EOF' > install.sh
-          #!/bin/sh
-          set -e
-          echo "===> 正在更新软件源以获取内核模块..."
-          opkg update || true
-          
-          echo "===> 正在安装依赖组件..."
-          # 增加 force-architecture 强制绕过架构检查，force-depends 忽略依赖缺失
-          opkg install depends/*.ipk --force-depends --force-maintainer --force-architecture || true
-          
-          echo "===> 正在安装 daed 主程序..."
-          opkg install luci-app-daed.ipk --force-depends --force-maintainer --force-architecture
-          
-          echo "===> 提示: 若 daed 无法启动，请在后台系统->软件包中手动安装 kmod-nft-tproxy"
-          echo "===> 安装完成！"
-          EOF
-          chmod +x install.sh
-          cp install.sh x86_64/
-          cp install.sh a53/
-
-      - name: Install makeself
-        run: sudo apt-get update && sudo apt-get install -y makeself
-
-      - name: Create .run packages
+      - name: Build .run packages
         run: |
           mkdir -p output
-          makeself x86_64/ "output/daed_x86_64-${{ env.version }}.run" "daed x86_64 Installer" ./install.sh
-          makeself a53/ "output/daed_aarch64_cortex-a53-${{ env.version }}.run" "daed a53 Installer" ./install.sh
+          # 假设脚本下载后结构为：./dist/x86_64/*.ipk 等
+          for dir in dist/*/; do
+            [ -d "$dir" ] || continue
+            platform=$(basename "$dir")
+            
+            # 4. 复制 install.sh
+            cp install.sh "$dir"
+            
+            # 5 & 7. 提取版本号并清理 (匹配 daed_0.x.x~xxx.ipk 格式)
+            # 使用 sed 清理 ~ 及其后内容
+            first_ipk=$(ls "$dir"/*.ipk | head -n 1)
+            full_name=$(basename "$first_ipk")
+            clean_version=$(echo "$full_name" | sed -E 's/daed_([0-9.]+).*/\1/')
+            
+            # 将版本号存入环境变量以便 Release 使用
+            echo "CLEAN_VERSION=$clean_version" >> $GITHUB_ENV
+            
+            # 6. 打包
+            makeself "$dir" "output/daed-${clean_version}-${platform}.run" "daed-installer" ./install.sh
+          done
 
-      - name: Upload release
-        uses: softprops/action-gh-release@v2
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: daed-${{ env.version }}
-          name: DAED-${{ env.version }}
+          tag_name: daed-${{ env.CLEAN_VERSION }}
+          name: daed ${{ env.CLEAN_VERSION }}
           files: output/*.run
+          body: "Automated build for daed version ${{ env.CLEAN_VERSION }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
