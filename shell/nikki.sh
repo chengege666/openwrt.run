@@ -1,8 +1,7 @@
 #!/bin/sh
 set -e
 
-OPENWRT_VERSION="${OPENWRT_VERSION:-24.10}"
-BASE_URL="https://nikkinikki.pages.dev/openwrt-${OPENWRT_VERSION}"
+BASE_URL="https://nikkinikki.pages.dev/openwrt-24.10"
 PLATFORMS="x86_64 aarch64_generic aarch64_cortex-a53"
 
 safe_download() {

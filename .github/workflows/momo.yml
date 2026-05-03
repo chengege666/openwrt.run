@@ -7,11 +7,6 @@ name: Make Momo run files
 
 on:
   workflow_dispatch:
-    inputs:
-      openwrt_version:
-        description: 'OpenWrt 版本 (如 24.10, 25.12.0)'
-        required: false
-        default: '24.10'
 
 permissions:
   contents: write
@@ -28,8 +23,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y makeself curl
 
       - name: Download Momo packages
-        env:
-          OPENWRT_VERSION: ${{ github.event.inputs.openwrt_version }}
         run: |
           chmod +x shell/momo.sh
           ./shell/momo.sh

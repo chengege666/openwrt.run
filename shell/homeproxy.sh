@@ -1,9 +1,7 @@
 #!/bin/sh
 set -e
 
-BASE_URL="${BASE_URL:-https://dl.openwrt.ai}"
-PACKAGE_VERSION="${PACKAGE_VERSION:-packages-24.10}"
-BASE_URL="${BASE_URL}/${PACKAGE_VERSION}"
+BASE_URL="https://dl.openwrt.ai/packages-24.10"
 PLATFORMS="x86_64 aarch64_generic aarch64_cortex-a53"
 
 safe_download() {
