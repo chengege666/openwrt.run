@@ -1,0 +1,87 @@
+name: Make TurboACC run files
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create directories
+        run: |
+          mkdir -p x86_64/depends a53/depends
+
+      - name: Download ipk files
+        run: |
+          # 定义需要抓取的关键包前缀
+          FILE_PREFIXES=("luci-app-turboacc" "turboacc" "nft-nftables" "tcping" "dns2tcp" "dns2socks" "pdnsd-alt")
+          
+          BASE_URLS=("https://dl.openwrt.ai/packages-24.10/x86_64/kiddin9/" "https://dl.openwrt.ai/packages-24.10/aarch64_cortex-a53/kiddin9/")
+          DIRS=("x86_64" "a53")
+
+          for i in {0..1}; do
+            URL="${BASE_URLS[$i]}"
+            TARGET_DIR="${DIRS[$i]}/depends"
+            echo "Fetching from $URL"
+            
+            wget -qO- "$URL" | grep -oP 'href="\K[^"]*"' | while read -r FILE; do
+              for PREFIX in "${FILE_PREFIXES[@]}"; do
+                if [[ "$FILE" == "$PREFIX"* ]]; then
+                  echo "Downloading $FILE"
+                  curl -L --fail "${URL}${FILE}" -o "$TARGET_DIR/$FILE" -#
+                fi
+              done
+            done
+          done
+
+      - name: List and organize packages
+        run: |
+          mv x86_64/depends/luci-app-turboacc*.ipk x86_64/
+          mv a53/depends/luci-app-turboacc*.ipk a53/
+
+      - name: Parse version
+        id: setver
+        run: |
+          VERSION=$(ls a53/luci-app-turboacc*.ipk | grep -oP '(?<=turboacc_)[^_]+')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $VERSION"
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > install.sh
+          #!/bin/sh
+          set -e
+          echo "===> 正在更新软件源..."
+          opkg update
+          echo "===> 正在安装依赖..."
+          opkg install depends/*.ipk --force-depends
+          echo "===> 正在安装 TurboACC..."
+          opkg install luci-app-turboacc*.ipk --force-depends
+          echo "===> 安装完成！请在后台刷新页面。"
+          EOF
+          chmod +x install.sh
+          cp install.sh x86_64/
+          cp install.sh a53/
+
+      - name: Install makeself
+        run: sudo apt-get update && sudo apt-get install -y makeself
+
+      - name: Create .run packages
+        run: |
+          mkdir -p output
+          makeself x86_64/ "output/turboacc_x86_64-${{ steps.setver.outputs.version }}.run" "TurboACC x86_64 Installer" ./install.sh
+          makeself a53/ "output/turboacc_aarch64_cortex-a53-${{ steps.setver.outputs.version }}.run" "TurboACC a53 Installer" ./install.sh
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: turboacc-${{ steps.setver.outputs.version }}
+          name: TurboACC-${{ steps.setver.outputs.version }}
+          files: output/*.run
