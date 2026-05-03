@@ -14,9 +14,6 @@ fail() {
 
 cd "$SCRIPT_DIR"
 
-log "正在更新软件源..."
-opkg update
-
 log "正在安装 Daed 主程序..."
 for ipk in *.ipk; do
     [ -f "$ipk" ] || continue
