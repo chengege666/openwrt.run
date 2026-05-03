@@ -20,17 +20,27 @@ find_latest_file() {
     printf '%s' "$index_html" | grep -oE "$pattern" | sort -V | tail -n 1
 }
 
+SSRP_DEPS="shadowsocks-rust-ssservice shadowsocks-rust-ssurl redsocks2"
+
 for platform in $PLATFORMS; do
     feed_url="${BASE_URL}/${platform}/kiddin9"
     echo "Preparing platform: $platform"
     mkdir -p "$platform"
 
     index_html="$(curl -fsSL --connect-timeout 15 --max-time 30 "${feed_url}/")"
+
     ssrp_app="$(find_latest_file "$index_html" 'luci-app-ssr-plus_[^"< ]*_all\.ipk')"
-
     [ -n "$ssrp_app" ] || { echo "Error: luci-app-ssr-plus not found for ${platform}"; exit 1; }
-
     safe_download "${feed_url}/${ssrp_app}" "${platform}/${ssrp_app}"
+
+    for dep in $SSRP_DEPS; do
+        dep_file="$(find_latest_file "$index_html" "${dep}_[^\"< ]*_${platform}\\.ipk")"
+        if [ -n "$dep_file" ]; then
+            safe_download "${feed_url}/${dep_file}" "${platform}/${dep_file}"
+        else
+            echo "Warning: ${dep} not found for ${platform}"
+        fi
+    done
 
     ls -lh "$platform"
 done
