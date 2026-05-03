@@ -1,0 +1,68 @@
+name: Make daed run files
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create directories
+        run: mkdir -p x86_64 a53
+
+      - name: Get latest release and download
+        run: |
+          # 获取 GitHub API 最新版本数据
+          LATEST_JSON=$(curl -s https://api.github.com/repos/QiuSimons/luci-app-daed/releases/latest)
+          
+          # 提取下载链接
+          URL_X86=$(echo "$LATEST_JSON" | grep -oP 'https://github.com/QiuSimons/luci-app-daed/releases/download/[^/]+/luci-app-daed_.*_x86_64\.ipk')
+          URL_A53=$(echo "$LATEST_JSON" | grep -oP 'https://github.com/QiuSimons/luci-app-daed/releases/download/[^/]+/luci-app-daed_.*_aarch64_cortex-a53\.ipk')
+          VERSION=$(echo "$LATEST_JSON" | grep -oP '(?<="tag_name": ")[^"]+')
+          
+          echo "version=$VERSION" >> $GITHUB_ENV
+          
+          echo "Downloading x86_64: $URL_X86"
+          curl -L -o x86_64/luci-app-daed.ipk "$URL_X86"
+          
+          echo "Downloading a53: $URL_A53"
+          curl -L -o a53/luci-app-daed.ipk "$URL_A53"
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > install.sh
+          #!/bin/sh
+          set -e
+          echo "===> 正在更新软件源..."
+          opkg update
+          echo "===> 正在安装 daed..."
+          # daed 依赖较多，建议在联网环境下安装，系统会自动补全依赖
+          opkg install luci-app-daed.ipk --force-depends
+          echo "===> 安装完成！"
+          EOF
+          chmod +x install.sh
+          cp install.sh x86_64/
+          cp install.sh a53/
+
+      - name: Install makeself
+        run: sudo apt-get update && sudo apt-get install -y makeself
+
+      - name: Create .run packages
+        run: |
+          mkdir -p output
+          makeself x86_64/ "output/daed_x86_64-${{ env.version }}.run" "daed x86_64 Installer" ./install.sh
+          makeself a53/ "output/daed_aarch64_cortex-a53-${{ env.version }}.run" "daed a53 Installer" ./install.sh
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: daed-${{ env.version }}
+          name: DAED-${{ env.version }}
+          files: output/*.run
