@@ -13,23 +13,37 @@ jobs:
       - name: Prepare Workspace
         run: |
           mkdir -p argon-build
+          sudo apt-get update && sudo apt-get install -y jq
           git clone https://github.com/megastep/makeself.git
 
       - name: Download Argon Theme
         run: |
-          echo "正在从 ImmortalWrt 官方源获取最新 Argon 主题..."
-          BASE_URL="https://downloads.immortalwrt.org/releases/24.10/packages/x86_64/luci/"
+          echo "正在从 GitHub Releases 获取最新 Argon 主题..."
+          RELEASES_JSON="$(curl -fsSL --connect-timeout 15 --max-time 30 https://api.github.com/repos/jerrykuku/luci-theme-argon/releases)"
 
-          THEME_IPK=$(wget -qO- --timeout=15 "$BASE_URL" | grep -oP 'luci-theme-argon_[^"<]*\.ipk' | sort -V | tail -n 1)
+          THEME_URL=""
+          for tag in v2.4.3 v2.3.2 v1.8.4; do
+            URL=$(echo "$RELEASES_JSON" | jq -r --arg t "$tag" '.[] | select(.tag_name == $t) | .assets[] | select(.name | endswith("_all.ipk")) | .browser_download_url' | head -1)
+            if [ -n "$URL" ]; then
+              THEME_URL="$URL"
+              echo "找到 IPK 版本: $tag"
+              break
+            fi
+          done
 
-          if [ -z "$THEME_IPK" ]; then
-            echo "错误：未在官方源找到 luci-theme-argon"
+          if [ -z "$THEME_URL" ]; then
+            echo "尝试从 releases 列表中搜索 IPK..."
+            THEME_URL=$(echo "$RELEASES_JSON" | jq -r '.[].assets[] | select(.name | endswith("_all.ipk")) | .browser_download_url' | head -1)
+          fi
+
+          if [ -z "$THEME_URL" ]; then
+            echo "错误：未在 GitHub Releases 中找到 luci-theme-argon 的 IPK 格式"
             exit 1
           fi
 
-          echo "下载: $THEME_IPK"
-          wget -q --timeout=15 "$BASE_URL$THEME_IPK" -P argon-build/
-          test -s argon-build/"$THEME_IPK"
+          echo "下载: $THEME_URL"
+          curl -L --fail --connect-timeout 15 --max-time 60 "$THEME_URL" -o argon-build/luci-theme-argon.ipk -#
+          test -s argon-build/luci-theme-argon.ipk
 
       - name: Create install.sh
         run: |
