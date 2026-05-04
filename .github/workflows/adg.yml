@@ -1,4 +1,4 @@
-name: Build AdGuardHome .run
+name: Build AdGuardHome .run (Luci only)
 
 on:
   workflow_dispatch:
@@ -18,21 +18,11 @@ jobs:
           mkdir -p adg-x86_64
           git clone https://github.com/megastep/makeself.git
 
-      - name: Fetch Latest Tags
+      - name: Download Luci App
         run: |
-          LATEST_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r '.tag_name')
-          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
-          echo "最新核心版本为: $LATEST_TAG"
-
-      - name: Download Files
-        run: |
-          wget "https://github.com/AdguardTeam/AdGuardHome/releases/download/${{ env.LATEST_TAG }}/AdGuardHome_linux_amd64.tar.gz" -O core.tar.gz
-          mkdir -p temp_core
-          tar -zxvf core.tar.gz -C temp_core
-          find temp_core -type f -name "AdGuardHome" -exec cp {} adg-x86_64/ \;
-
-          echo "正在自动获取最新插件..."
+          echo "正在自动获取最新 luci-app-adguardhome ipk..."
           LATEST_IPK_URL=$(curl -s https://api.github.com/repos/rufengsuixing/luci-app-adguardhome/releases/latest | jq -r '.assets[] | select(.name | endswith("all.ipk")) | .browser_download_url' | head -n 1)
+
           if [ -z "$LATEST_IPK_URL" ]; then
             echo "错误：未找到有效的 .ipk 文件！"
             exit 1
@@ -44,22 +34,12 @@ jobs:
         run: |
           cat << 'EOF' > adg-x86_64/install.sh
           #!/bin/sh
-          echo "===> 正在安装界面与语言包..."
+          echo "===> 正在安装主程序与中文语言包..."
           opkg install --force-depends *.ipk
 
-          echo "===> 正在安装必要工具 (wget-ssl)..."
+          echo "===> 安装必要工具 (wget-ssl，用于后续更新核心)..."
           opkg update
           opkg install wget-ssl
-
-          echo "===> 正在部署 AdGuardHome 核心..."
-          # 确保是目录，不是文件（修复旧版残留）
-          if [ -f /usr/bin/AdGuardHome ]; then
-              rm -f /usr/bin/AdGuardHome
-          fi
-          mkdir -p /usr/bin/AdGuardHome
-          # 放入核心
-          cp AdGuardHome /usr/bin/AdGuardHome/AdGuardHome
-          chmod 0755 /usr/bin/AdGuardHome/AdGuardHome
 
           echo "===> 正在设置更新核心地址..."
           sleep 2
@@ -68,26 +48,27 @@ jobs:
             uci commit AdGuardHome
             echo "更新地址已写入官方源（含变量）。"
           else
-            echo "AdGuardHome 配置未生成，如需要可手动在 Web 界面设置升级链接。"
+            echo "AdGuardHome 配置未生成，可稍后在 Web 界面手动设置升级链接。"
           fi
 
-          echo "===> AdGuardHome 安装完成！"
+          echo "===> 安装完成！核心请通过 Web 界面“更新核心”按钮下载。"
           EOF
           chmod +x adg-x86_64/install.sh
 
       - name: Create self-extracting .run package
         run: |
-          ./makeself/makeself.sh adg-x86_64/ AdGuardHome_${{ env.LATEST_TAG }}_x86_64.run "AdGuardHome by GitHub Actions" ./install.sh
+          # 包名不再包含版本号，因为核心版本由用户按需更新
+          ./makeself/makeself.sh adg-x86_64/ AdGuardHome-luci-x86_64.run "AdGuardHome Luci Installer" ./install.sh
 
       - name: Upload run file as release asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: adguardhome-${{ env.LATEST_TAG }}
-          name: "AdGuardHome-${{ env.LATEST_TAG }}"
-          files: AdGuardHome_${{ env.LATEST_TAG }}_x86_64.run
+          tag_name: luci-app-adguardhome-latest
+          name: "AdGuardHome Web 界面离线安装包"
+          files: AdGuardHome-luci-x86_64.run
           body: |
-            ### AdGuardHome 自动化构建离线包
-            - 核心版本: ${{ env.LATEST_TAG }}
-            - 架构: x86_64
-            - 解决 wget-ssl 缺失与目录结构问题
-            - 使用方式: 上传到 /tmp，执行 `chmod +x *.run && ./*.run`
+            ### AdGuardHome 界面离线包 (不含核心)
+            - 仅包含 luci-app-adguardhome 最新版
+            - 自动配置更新核心链接为官方地址
+            - 首次安装后请到 Web 管理页点“更新核心”下载 AdGuardHome 二进制文件
+            - 使用方式：上传到 /tmp，执行 `chmod +x *.run && ./*.run`
