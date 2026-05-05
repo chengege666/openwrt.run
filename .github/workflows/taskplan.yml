@@ -48,8 +48,12 @@ jobs:
           wait
 
           echo "Extracting archives..."
-          cd taskplan_x86_64 && tar -xzf *.tar.gz && rm *.tar.gz && cd ..
-          cd taskplan_aarch64_generic && tar -xzf *.tar.gz && rm *.tar.gz && cd ..
+          cd taskplan_x86_64 && tar -xzf *.tar.gz && rm *.tar.gz && find . -name "*.ipk" -exec mv {} . \; && cd ..
+          cd taskplan_aarch64_generic && tar -xzf *.tar.gz && rm *.tar.gz && find . -name "*.ipk" -exec mv {} . \; && cd ..
+
+          echo "IPK files:"
+          ls -la taskplan_x86_64/*.ipk
+          ls -la taskplan_aarch64_generic/*.ipk
 
           echo "Download completed."
 
