@@ -42,7 +42,7 @@ jobs:
           mv openclash-x86/clash openclash-x86/clash_meta
 
           # 解压 aarch64 核心
-          tar -xzvf OpenClash-Core/master/meta/clash-linux-arm64-v1.tar.gz -C openclash-aarch64/
+          tar -xzvf OpenClash-Core/master/meta/clash-linux-arm64.tar.gz -C openclash-aarch64/
           mv openclash-aarch64/clash openclash-aarch64/clash_meta
 
       - name: Create install.sh
