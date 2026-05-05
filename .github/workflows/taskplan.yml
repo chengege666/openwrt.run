@@ -1,0 +1,80 @@
+name: Build TaskPlan .run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest release tag
+        id: fetch_latest_tag
+        run: |
+          latest_tag=$(curl -sk https://api.github.com/repos/sirpdboy/luci-app-taskplan/releases/latest | jq -r '.tag_name')
+          VERSION="${latest_tag#v}"
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Clone makeself repository
+        run: git clone https://github.com/megastep/makeself.git
+
+      - name: Download taskplan IPK packages
+        run: |
+          echo "Downloading TaskPlan IPK packages for ${{ env.LATEST_TAG }}..."
+          curl -sk "https://api.github.com/repos/sirpdboy/luci-app-taskplan/releases/latest" > releases.txt
+
+          mkdir -p taskplan_x86_64 taskplan_aarch64_generic
+
+          download_file() {
+            local url=$1
+            local output_dir=$2
+            [ -z "$url" ] && return
+            local filename=$(basename "$url")
+            echo "Downloading $filename to $output_dir..."
+            curl --connect-timeout 30 -m 600 -kLo "$output_dir/$filename" "$url"
+          }
+
+          taskplan_x86_64=$(grep "browser_download_url" releases.txt | grep "x86_64.tar.gz" | head -1 | awk -F '"' '{print $4}')
+          taskplan_aarch64_generic=$(grep "browser_download_url" releases.txt | grep "aarch64_generic.tar.gz" | head -1 | awk -F '"' '{print $4}')
+
+          download_file "$taskplan_x86_64" "taskplan_x86_64" &
+          download_file "$taskplan_aarch64_generic" "taskplan_aarch64_generic" &
+          wait
+
+          echo "Extracting archives..."
+          cd taskplan_x86_64 && tar -xzf *.tar.gz && rm *.tar.gz && cd ..
+          cd taskplan_aarch64_generic && tar -xzf *.tar.gz && rm *.tar.gz && cd ..
+
+          echo "Download completed."
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > taskplan_x86_64/install.sh
+          #!/bin/sh
+          opkg update
+          opkg install --force-depends *.ipk
+          echo "TaskPlan installed."
+          EOF
+          chmod +x taskplan_x86_64/install.sh
+          cp taskplan_x86_64/install.sh taskplan_aarch64_generic/install.sh
+
+      - name: Create self-extracting packages
+        run: |
+          mv taskplan_x86_64 makeself/
+          mv taskplan_aarch64_generic makeself/
+          cd makeself
+          ./makeself.sh taskplan_x86_64/ taskplan_${{ env.VERSION }}_x86_64.run "TaskPlan Installer x86_64" ./install.sh
+          ./makeself.sh taskplan_aarch64_generic/ taskplan_${{ env.VERSION }}_aarch64.run "TaskPlan Installer aarch64" ./install.sh
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: taskplan-${{ env.VERSION }}
+          name: "TaskPlan ${{ env.LATEST_TAG }}"
+          files: makeself/taskplan_*.run
