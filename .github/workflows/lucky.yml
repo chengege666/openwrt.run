@@ -16,7 +16,7 @@ jobs:
       - name: Fetch latest release tag
         id: fetch_latest_tag
         run: |
-          latest_tag=$(curl -sk https://api.github.com/repos/gdy666/luci-app-lucky/releases/latest | jq -r '.tag_name')
+          latest_tag=$(curl -sk https://api.github.com/repos/sirpdboy/luci-app-lucky/releases/latest | jq -r '.tag_name')
           VERSION="${latest_tag#v}"
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
@@ -27,9 +27,9 @@ jobs:
       - name: Download lucky IPK packages
         run: |
           echo "Downloading Lucky IPK packages for ${{ env.LATEST_TAG }}..."
-          curl -sk "https://api.github.com/repos/gdy666/luci-app-lucky/releases/latest" > releases.txt
+          curl -sk "https://api.github.com/repos/sirpdboy/luci-app-lucky/releases/latest" > releases.txt
 
-          mkdir -p lucky_x86_64 lucky_aarch64
+          mkdir -p lucky_x86_64 lucky_aarch64_generic
 
           download_file() {
             local url=$1
@@ -40,18 +40,20 @@ jobs:
             curl --connect-timeout 30 -m 600 -kLo "$output_dir/$filename" "$url"
           }
 
-          lucky_x86_64=$(grep "browser_download_url" releases.txt | grep "lucky_" | grep "x86_64.ipk" | head -1 | awk -F '"' '{print $4}')
-          lucky_aarch64=$(grep "browser_download_url" releases.txt | grep "lucky_" | grep "aarch64.ipk" | head -1 | awk -F '"' '{print $4}')
-          luci_app=$(grep "browser_download_url" releases.txt | grep "luci-app-lucky_" | head -1 | awk -F '"' '{print $4}')
-          luci_i18n=$(grep "browser_download_url" releases.txt | grep "luci-i18n-lucky-zh-cn" | head -1 | awk -F '"' '{print $4}')
+          lucky_x86_64=$(grep "browser_download_url" releases.txt | grep "x86_64.tar.gz" | head -1 | awk -F '"' '{print $4}')
+          lucky_aarch64_generic=$(grep "browser_download_url" releases.txt | grep "aarch64_generic.tar.gz" | head -1 | awk -F '"' '{print $4}')
 
           download_file "$lucky_x86_64" "lucky_x86_64" &
-          download_file "$lucky_aarch64" "lucky_aarch64" &
-          download_file "$luci_app" "lucky_x86_64" &
-          download_file "$luci_app" "lucky_aarch64" &
-          download_file "$luci_i18n" "lucky_x86_64" &
-          download_file "$luci_i18n" "lucky_aarch64" &
+          download_file "$lucky_aarch64_generic" "lucky_aarch64_generic" &
           wait
+
+          echo "Extracting archives..."
+          cd lucky_x86_64 && tar -xzf *.tar.gz && rm *.tar.gz && find . -name "*.ipk" -exec mv {} . \; && cd ..
+          cd lucky_aarch64_generic && tar -xzf *.tar.gz && rm *.tar.gz && find . -name "*.ipk" -exec mv {} . \; && cd ..
+
+          echo "IPK files:"
+          ls -la lucky_x86_64/*.ipk
+          ls -la lucky_aarch64_generic/*.ipk
 
           echo "Download completed."
 
@@ -67,15 +69,15 @@ jobs:
           echo "Web UI: http://$(uci get network.lan.ipaddr 2>/dev/null || hostname -i):16601"
           EOF
           chmod +x lucky_x86_64/install.sh
-          cp lucky_x86_64/install.sh lucky_aarch64/install.sh
+          cp lucky_x86_64/install.sh lucky_aarch64_generic/install.sh
 
       - name: Create self-extracting packages
         run: |
           mv lucky_x86_64 makeself/
-          mv lucky_aarch64 makeself/
+          mv lucky_aarch64_generic makeself/
           cd makeself
           ./makeself.sh lucky_x86_64/ lucky_${{ env.VERSION }}_x86_64.run "Lucky Installer x86_64" ./install.sh
-          ./makeself.sh lucky_aarch64/ lucky_${{ env.VERSION }}_aarch64.run "Lucky Installer aarch64" ./install.sh
+          ./makeself.sh lucky_aarch64_generic/ lucky_${{ env.VERSION }}_aarch64.run "Lucky Installer aarch64" ./install.sh
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
