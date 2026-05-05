@@ -1,0 +1,70 @@
+name: Build Lucky .run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest release tag
+        id: fetch_latest_tag
+        run: |
+          latest_tag=$(curl -sk https://api.github.com/repos/gdy666/lucky/releases/latest | jq -r '.tag_name')
+          VERSION="${latest_tag#v}"
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Clone makeself repository
+        run: git clone https://github.com/megastep/makeself.git
+
+      - name: Download lucky binaries
+        run: |
+          echo "Downloading Lucky ${{ env.LATEST_TAG }}..."
+          BASE_URL="https://github.com/gdy666/lucky/releases/download/${{ env.LATEST_TAG }}"
+
+          mkdir -p lucky_x86_64 lucky_aarch64
+
+          curl --connect-timeout 30 -m 600 -kLo "lucky_x86_64/lucky.tar.gz" "${BASE_URL}/lucky_${{ env.VERSION }}_Linux_x86_64.tar.gz"
+          curl --connect-timeout 30 -m 600 -kLo "lucky_aarch64/lucky.tar.gz" "${BASE_URL}/lucky_${{ env.VERSION }}_Linux_arm64.tar.gz"
+
+          echo "Extracting archives..."
+          cd lucky_x86_64 && tar -xzf lucky.tar.gz && rm lucky.tar.gz && cd ..
+          cd lucky_aarch64 && tar -xzf lucky.tar.gz && rm lucky.tar.gz && cd ..
+
+          echo "Download and extract completed."
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > lucky_x86_64/install.sh
+          #!/bin/sh
+          INSTALL_DIR="/usr/local/lucky"
+          mkdir -p "$INSTALL_DIR"
+          cp -f lucky "$INSTALL_DIR/"
+          chmod +x "$INSTALL_DIR/lucky"
+          echo "Lucky installed to $INSTALL_DIR"
+          echo "Run: $INSTALL_DIR/lucky -p 16601"
+          EOF
+          chmod +x lucky_x86_64/install.sh
+          cp lucky_x86_64/install.sh lucky_aarch64/install.sh
+
+      - name: Create self-extracting packages
+        run: |
+          mv lucky_x86_64 makeself/
+          mv lucky_aarch64 makeself/
+          cd makeself
+          ./makeself.sh lucky_x86_64/ lucky_${{ env.VERSION }}_x86_64.run "Lucky Installer x86_64" ./install.sh
+          ./makeself.sh lucky_aarch64/ lucky_${{ env.VERSION }}_aarch64.run "Lucky Installer aarch64" ./install.sh
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lucky-${{ env.VERSION }}
+          name: "Lucky ${{ env.LATEST_TAG }}"
+          files: makeself/lucky_*.run
