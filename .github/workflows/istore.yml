@@ -172,12 +172,6 @@ jobs:
           5. 安装完成后在对应菜单中使用
           
           ---
-          
-          ## 相关链接
-          
-          - 源码仓库：https://github.com/linkease/istore
-          - 问题反馈：https://github.com/linkease/istore/issues
-          ENDOFFILE
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
