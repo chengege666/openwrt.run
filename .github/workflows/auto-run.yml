@@ -1,4 +1,4 @@
-name: 触发所有工作流
+name: 触发所有工作流并统一收集
 
 on:
   schedule:
@@ -6,15 +6,21 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 concurrency:
   group: auto-run
   cancel-in-progress: false
 
+env:
+  BUNDLE_TAG: "packages-bundle-latest"
+  BUNDLE_NAME: "OpenWrt 插件合集 - 统一打包"
+  MAX_WAIT_MINUTES: 300
+  POLL_INTERVAL_SECONDS: 60
+
 jobs:
-  dispatch-all:
+  dispatch-and-collect:
     runs-on: ubuntu-22.04
     if: github.repository_owner == 'chengege666'
 
@@ -22,7 +28,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Trigger all workflows
+        id: trigger
         run: |
+          echo "开始触发所有工作流..."
+          TRIGGERED=""
           for workflow in .github/workflows/*.yml; do
             name=$(basename "$workflow")
             case "$name" in
@@ -33,15 +42,132 @@ jobs:
             esac
             echo "触发工作流: $name"
             gh workflow run "$name" --repo "${{ github.repository }}"
+            TRIGGERED="${TRIGGERED}${name%.yml},"
+          done
+          echo "triggered_list=${TRIGGERED%,}" >> $GITHUB_OUTPUT
+          echo "已触发: ${TRIGGERED%,}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait for all workflows to complete
+        id: wait
+        run: |
+          echo "等待所有工作流完成..."
+          START_TIME=$(date +%s)
+          MAX_WAIT=$((MAX_WAIT_MINUTES * 60))
+
+          while true; do
+            CURRENT_TIME=$(date +%s)
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+
+            if [ $ELAPSED -ge $MAX_WAIT ]; then
+              echo "等待超时 ($MAX_WAIT_MINUTES 分钟)"
+              echo "status=timeout" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            ALL_DONE=true
+            WORKFLOW_STATUS=""
+
+            for workflow_name in $(echo "${{ steps.trigger.outputs.triggered_list }}" | tr ',' ' '); do
+              workflow_file="${workflow_name}.yml"
+              [ ! -f ".github/workflows/$workflow_file" ] && continue
+
+              echo "检查 $workflow_file 状态..."
+              RUNS=$(gh run list --workflow="$workflow_file" --repo "${{ github.repository }}" --limit 5 --json status,conclusion,databaseId --jq ".[] | select(.status != \"completed\") | .databaseId")
+
+              if [ -n "$RUNS" ]; then
+                ALL_DONE=false
+                echo "  $workflow_file 仍在运行..."
+              else
+                LATEST_RUN=$(gh run list --workflow="$workflow_file" --repo "${{ github.repository }}" --limit 1 --json status,conclusion --jq ".[0]")
+                CONCLUSION=$(echo "$LATEST_RUN" | jq -r '.conclusion')
+                echo "  $workflow_file 完成，结果: $CONCLUSION"
+                WORKFLOW_STATUS="${WORKFLOW_STATUS}${workflow_name}:${CONCLUSION},"
+              fi
+            done
+
+            if [ "$ALL_DONE" = true ]; then
+              echo "所有工作流已完成"
+              echo "status=completed" >> $GITHUB_OUTPUT
+              echo "results=${WORKFLOW_STATUS%,}" >> $GITHUB_OUTPUT
+              break
+            fi
+
+            echo "等待 ${POLL_INTERVAL_SECONDS} 秒后重试..."
+            sleep $POLL_INTERVAL_SECONDS
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Summary
+      - name: Collect all release assets
         run: |
-          echo "已触发以下工作流："
-          for workflow in .github/workflows/*.yml; do
-            name=$(basename "$workflow")
-            [ "$name" == "auto-run.yml" ] || [ "$name" == "cleanup-releases.yml" ] && continue
-            echo "  - ${name%.yml}"
+          mkdir -p bundle_output
+          echo "开始收集所有 Release 产物..."
+
+          for workflow_name in $(echo "${{ steps.trigger.outputs.triggered_list }}" | tr ',' ' '); do
+            echo "收集 $workflow_name 的产物..."
+            LATEST_RELEASE=$(gh release list --repo "${{ github.repository }}" --limit 10 --json tagName,name,assets --jq ".[] | select(.tagName | test(\"$workflow_name\"; \"i\"))" | head -1)
+
+            if [ -z "$LATEST_RELEASE" ]; then
+              echo "  未找到 $workflow_name 的 Release"
+              continue
+            fi
+
+            TAG_NAME=$(echo "$LATEST_RELEASE" | jq -r '.tagName')
+            ASSETS=$(echo "$LATEST_RELEASE" | jq -r '.assets[].browser_download_url')
+
+            for ASSET_URL in $ASSETS; do
+              FILENAME=$(basename "$ASSET_URL")
+              echo "  下载: $FILENAME"
+              gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern "$FILENAME" --dir bundle_output --clobber
+            done
           done
+
+          echo "产物收集完成:"
+          ls -lh bundle_output/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create bundle release
+        run: |
+          echo "创建统一 Release..."
+          cd bundle_output
+
+          FILE_COUNT=$(ls -1 *.run 2>/dev/null | wc -l)
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "没有找到 .run 文件，跳过创建 Release"
+            exit 0
+          fi
+
+          echo "生成 Release 说明..."
+          cat > release_body.md << 'EOF'
+          ## OpenWrt 插件合集
+
+          本 Release 包含以下插件的离线安装包 (.run)：
+
+          EOF
+
+          for f in *.run; do
+            echo "- $f" >> release_body.md
+          done
+
+          echo "" >> release_body.md
+          echo "构建时间: $(date '+%Y-%m-%d %H:%M:%S')" >> release_body.md
+          echo "仓库: ${{ github.repository }}" >> release_body.md
+
+          echo "上传 Release..."
+          gh release delete "$BUNDLE_TAG" --repo "${{ github.repository }}" --yes 2>/dev/null || true
+          sleep 2
+
+          gh release create "$BUNDLE_TAG" *.run \
+            --repo "${{ github.repository }}" \
+            --title "$BUNDLE_NAME" \
+            --notes-file release_body.md \
+            --latest
+
+          echo "统一 Release 创建完成!"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE_TAG: ${{ env.BUNDLE_TAG }}
+          BUNDLE_NAME: ${{ env.BUNDLE_NAME }}
