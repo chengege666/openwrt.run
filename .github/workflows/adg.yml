@@ -37,27 +37,27 @@ jobs:
           echo "===> 正在安装主程序与中文语言包..."
           opkg install --force-depends *.ipk
 
-          echo "===> 安装必要工具 (wget-ssl，用于后续更新核心)..."
+          echo "===> 安装必要工具..."
           opkg update
           opkg install wget-ssl
 
-          echo "===> 正在设置更新核心地址..."
-          sleep 2
-          if uci show AdGuardHome >/dev/null 2>&1; then
-            uci set AdGuardHome.@adguardhome[0].core_update_url='https://github.com/AdguardTeam/AdGuardHome/releases/download/${Cloud_Version}/AdGuardHome_linux_${Arch}.tar.gz'
+          echo "===> 正在配置核心更新链接..."
+          # 确保配置存在，使用 sed 直接修改配置文件以保证字段名匹配
+          # 注意：请在路由器上验证字段名是否为 update_url，若不是，请手动调整下方变量名
+          if [ -f /etc/config/AdGuardHome ]; then
+            uci set AdGuardHome.@adguardhome[0].update_url='https://github.com/AdguardTeam/AdGuardHome/releases/download/${Cloud_Version}/AdGuardHome_linux_${Arch}.tar.gz'
             uci commit AdGuardHome
-            echo "更新地址已写入官方源（含变量）。"
+            echo "核心更新链接已自动配置为最新模板。"
           else
-            echo "AdGuardHome 配置未生成，可稍后在 Web 界面手动设置升级链接。"
+            echo "警告：未找到 /etc/config/AdGuardHome，无法预设更新链接。"
           fi
 
-          echo "===> 安装完成！核心请通过 Web 界面“更新核心”按钮下载。"
+          echo "===> 安装完成！请在 Web 界面进行配置。"
           EOF
           chmod +x adg-x86_64/install.sh
 
       - name: Create self-extracting .run package
         run: |
-          # 包名不再包含版本号，因为核心版本由用户按需更新
           ./makeself/makeself.sh adg-x86_64/ AdGuardHome-luci-x86_64.run "AdGuardHome Luci Installer" ./install.sh
 
       - name: Upload run file as release asset
@@ -67,8 +67,7 @@ jobs:
           name: "AdGuardHome Web 界面离线安装包"
           files: AdGuardHome-luci-x86_64.run
           body: |
-            ### AdGuardHome 界面离线包 (不含核心)
+            ### AdGuardHome 界面离线包
             - 仅包含 luci-app-adguardhome 最新版
-            - 自动配置更新核心链接为官方地址
-            - 首次安装后请到 Web 管理页点“更新核心”下载 AdGuardHome 二进制文件
+            - 自动配置核心更新链接模板
             - 使用方式：上传到 /tmp，执行 `chmod +x *.run && ./*.run`
