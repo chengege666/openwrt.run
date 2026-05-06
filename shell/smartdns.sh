@@ -46,9 +46,14 @@ echo "Latest tag: $tag"
 
 echo ""
 echo "Available IPK files:"
-printf '%s' "$api_json" | jq -r '.assets[] | select(.name | test("\\.ipk$")) | .name'
+printf '%s' "$api_json" | jq -r '.assets[] | select(.name | endswith(".ipk")) | .name'
 
 echo ""
+
+find_asset() {
+    pattern="$1"
+    printf '%s' "$api_json" | jq -r '.assets[].name' | grep "$pattern" | head -1
+}
 
 for platform in $PLATFORMS; do
     echo "===== Processing platform: $platform ====="
@@ -57,8 +62,8 @@ for platform in $PLATFORMS; do
     sd_arch="$(get_smartdns_arch "$platform")"
     echo "SmartDNS architecture: $sd_arch"
 
-    smartdns_file="$(printf '%s' "$api_json" | jq -r ".assets[] | select(.name | test(\"smartdns\\\\..*\\\\.${sd_arch}-openwrt-all\\\\.ipk$\")) | .name" | head -1)"
-    if [ -n "$smartdns_file" ] && [ "$smartdns_file" != "null" ]; then
+    smartdns_file="$(find_asset "smartdns.*${sd_arch}-openwrt-all.ipk")"
+    if [ -n "$smartdns_file" ]; then
         echo "Found smartdns: $smartdns_file"
         safe_download "https://github.com/$REPO/releases/download/$tag/$smartdns_file" \
             "${platform}/${smartdns_file}"
@@ -72,8 +77,8 @@ for platform in $PLATFORMS; do
     echo ""
 done
 
-luci_file="$(printf '%s' "$api_json" | jq -r '.assets[] | select(.name | test("luci-app-smartdns\\\\..*\\\\.all-luci-all\\\\.ipk$")) | .name' | head -1)"
-if [ -n "$luci_file" ] && [ "$luci_file" != "null" ]; then
+luci_file="$(find_asset "luci-app-smartdns.*all-luci-all.ipk")"
+if [ -n "$luci_file" ]; then
     echo "Found luci-app-smartdns: $luci_file"
     for platform in $PLATFORMS; do
         safe_download "https://github.com/$REPO/releases/download/$tag/$luci_file" \
