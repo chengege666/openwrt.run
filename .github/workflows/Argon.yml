@@ -59,6 +59,151 @@ jobs:
         run: |
           ./makeself/makeself.sh argon-build/ Argon_Theme_Pure.run "Argon Theme Installer" ./install.sh
 
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << 'ENDOFFILE'
+          ## Argon 主题 .run
+          
+          一款美观且功能强大的 OpenWrt LuCI 主题，支持亮色/暗色模式切换。
+          
+          ---
+          
+          ## 系统要求
+          
+          - **固件版本**：OpenWrt 或 ImmortalWrt `22.03+`
+          - **支持架构**：`all`（与架构无关）
+          - **磁盘空间**：至少 5MB 可用空间
+          - **权限要求**：root 权限
+          
+          ---
+          
+          ## 功能特性
+          
+          - **美观界面**：现代化设计风格，支持毛玻璃效果
+          - **亮暗切换**：支持亮色/暗色模式自动切换
+          - **响应式布局**：适配桌面和移动设备
+          - **自定义背景**：支持自定义登录页面背景图片
+          - **主题设置**：丰富的主题配置选项
+          
+          ---
+          
+          ## 安装步骤
+          
+          ### 通过 SSH 安装
+          
+          **1. 上传安装包**
+          
+          方式 A - 使用 SCP（推荐）：
+          ```bash
+          scp Argon_Theme_Pure.run root@192.168.1.1:/tmp/
+          ```
+          
+          方式 B - 使用 WinSCP/FileZilla：
+          - 连接路由器（协议：SCP，端口：22）
+          - 将 `Argon_Theme_Pure.run` 文件上传到 `/tmp/` 目录
+          
+          **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 IPK 包！
+          
+          **2. 进入临时目录**
+          ```bash
+          cd /tmp
+          ```
+          
+          **3. 添加执行权限**
+          ```bash
+          chmod +x Argon_Theme_Pure.run
+          ```
+          
+          **4. 执行安装**
+          ```bash
+          ./Argon_Theme_Pure.run
+          ```
+          
+          **5. 等待安装完成**
+          - 安装过程会自动解压并安装主题
+          - 看到安装成功提示后继续下一步
+          
+          **6. 刷新 LuCI 界面**
+          - 退出并重新登录 LuCI
+          - 在 **系统 -> 系统** 页面选择 argon 主题
+          
+          ---
+          
+          ## 验证安装
+          
+          **检查是否安装成功**：
+          ```bash
+          opkg list-installed | grep argon
+          ```
+          
+          **查看主题状态**：
+          ```bash
+          ls /www/luci-static/argon/
+          ```
+          
+          **应用主题**：
+          - 登录 LuCI 管理界面
+          - 进入 **系统 -> 系统** 页面
+          - 在 **主题** 下拉框中选择 `argon`
+          - 点击 **保存并应用**
+          
+          ---
+          
+          ## 主题配置
+          
+          **1. 打开主题设置**
+          - 登录 LuCI 管理界面
+          - 进入 **系统 -> Argon 主题设置**
+          
+          **2. 配置选项**
+          - **主色调**：自定义主题颜色
+          - **背景图片**：上传自定义登录页背景
+          - **毛玻璃效果**：开启/关闭模糊效果
+          - **暗色模式**：设置暗色模式触发条件
+          
+          **3. 保存配置**
+          - 点击 **保存并应用**
+          - 刷新页面查看效果
+          
+          ---
+          
+          ## 常见问题
+          
+          ### Q1: 安装后 LuCI 界面没有变化？
+          **A**: 需要手动切换主题：
+          1. 进入 **系统 -> 系统** 页面
+          2. 在 **主题** 下拉框中选择 `argon`
+          3. 点击 **保存并应用**
+          
+          ### Q2: 如何恢复默认主题？
+          **A**: 
+          1. 进入 **系统 -> 系统** 页面
+          2. 在 **主题** 下拉框中选择 `bootstrap` 或其他主题
+          3. 点击 **保存并应用**
+          
+          ### Q3: 暗色模式不生效？
+          **A**: 检查以下设置：
+          1. 进入 **系统 -> Argon 主题设置**
+          2. 确认暗色模式触发条件设置正确
+          3. 清除浏览器缓存后重试
+          
+          ### Q4: 如何卸载 Argon 主题？
+          **A**: 
+          ```bash
+          opkg remove luci-theme-argon
+          ```
+          卸载后请切换回其他主题。
+          
+          ---
+          
+          ## 注意事项
+          
+          - **主题切换**：切换主题后建议清除浏览器缓存
+          - **自定义背景**：建议使用 1920x1080 分辨率图片
+          - **兼容性**：部分老旧浏览器可能不支持毛玻璃效果
+          
+          ENDOFFILE
+
       - name: Set Tag Name
         run: echo "TAG_NAME=argon-$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
 
@@ -67,4 +212,5 @@ jobs:
         with:
           tag_name: ${{ env.TAG_NAME }}
           name: "Argon Theme ${{ env.TAG_NAME }}"
+          body_path: release_notes.md
           files: Argon_Theme_Pure.run

@@ -216,12 +216,6 @@ jobs:
           - **系统插件**：不要卸载系统核心插件，可能导致系统不稳定
           - **依赖关系**：卸载某个插件可能会影响依赖它的其他插件
           
-          ---
-          
-          ## 相关链接
-          
-          - 官方网站：https://xz.vumstar.com/
-          - 版本历史：https://xz.vumstar.com/
           ENDOFFILE
 
       - name: Upload Release

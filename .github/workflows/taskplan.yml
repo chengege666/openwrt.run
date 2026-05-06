@@ -76,9 +76,166 @@ jobs:
           ./makeself.sh taskplan_x86_64/ taskplan_${{ env.VERSION }}_x86_64.run "TaskPlan Installer x86_64" ./install.sh
           ./makeself.sh taskplan_aarch64_generic/ taskplan_${{ env.VERSION }}_aarch64.run "TaskPlan Installer aarch64" ./install.sh
 
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << 'ENDOFFILE'
+          ## TaskPlan（定时任务） .run
+          
+          一款功能强大的 OpenWrt 定时任务管理插件，支持多种触发条件和执行动作。
+          
+          ---
+          
+          ## 系统要求
+          
+          - **固件版本**：OpenWrt 或 ImmortalWrt `22.03+`
+          - **支持架构**：`x86_64`、`aarch64_generic`
+          - **磁盘空间**：至少 5MB 可用空间
+          - **权限要求**：root 权限
+          
+          ---
+          
+          ## 功能特性
+          
+          - **定时执行**：支持 cron 表达式设置定时任务
+          - **多种触发**：支持时间触发、事件触发等多种方式
+          - **丰富动作**：支持重启服务、执行命令、发送邮件等动作
+          - **Web 管理**：提供友好的 LuCI 管理界面
+          - **日志记录**：记录任务执行历史和结果
+          
+          ---
+          
+          ## 安装步骤
+          
+          ### 通过 SSH 安装
+          
+          **1. 上传安装包**
+          
+          方式 A - 使用 SCP（推荐）：
+          ```bash
+          # x86_64 设备
+          scp taskplan_*_x86_64.run root@192.168.1.1:/tmp/
+          
+          # aarch64 设备
+          scp taskplan_*_aarch64.run root@192.168.1.1:/tmp/
+          ```
+          
+          方式 B - 使用 WinSCP/FileZilla：
+          - 连接路由器（协议：SCP，端口：22）
+          - 将对应的 `.run` 文件上传到 `/tmp/` 目录
+          
+          **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 IPK 包！
+          
+          **2. 进入临时目录**
+          ```bash
+          cd /tmp
+          ```
+          
+          **3. 添加执行权限**
+          ```bash
+          # x86_64 设备
+          chmod +x taskplan_*_x86_64.run
+          
+          # aarch64 设备
+          chmod +x taskplan_*_aarch64.run
+          ```
+          
+          **4. 执行安装**
+          ```bash
+          # x86_64 设备
+          ./taskplan_*_x86_64.run
+          
+          # aarch64 设备
+          ./taskplan_*_aarch64.run
+          ```
+          
+          **5. 等待安装完成**
+          - 安装过程会自动解压并安装插件
+          - 看到安装成功提示后继续下一步
+          
+          **6. 刷新 LuCI 界面**
+          - 退出并重新登录 LuCI
+          - 在 **系统** 菜单下找到 **定时任务** 入口
+          
+          ---
+          
+          ## 验证安装
+          
+          **检查是否安装成功**：
+          ```bash
+          opkg list-installed | grep taskplan
+          ```
+          
+          **访问界面**：
+          - 在 LuCI 菜单中找到 **系统 -> 定时任务** 入口
+          
+          ---
+          
+          ## 使用方法
+          
+          **1. 打开定时任务界面**
+          - 登录 LuCI 管理界面
+          - 找到 **系统 -> 定时任务** 菜单项
+          
+          **2. 添加定时任务**
+          - 点击 **添加** 按钮
+          - 填写任务名称和描述
+          - 设置触发条件（cron 表达式或时间）
+          - 选择执行动作
+          - 保存配置
+          
+          **3. 管理任务**
+          - 在任务列表中启用/禁用任务
+          - 查看任务执行日志
+          - 编辑或删除不需要的任务
+          
+          **4. 查看执行日志**
+          - 点击任务名称查看执行历史
+          - 检查执行结果和错误信息
+          
+          ---
+          
+          ## 常见问题
+          
+          ### Q1: 安装后 LuCI 界面没有定时任务菜单？
+          **A**: 这是 LuCI 缓存问题，请：
+          1. 退出 LuCI 登录
+          2. 清除浏览器缓存
+          3. 重新登录即可
+          
+          ### Q2: 如何确认我的设备架构？
+          **A**: 通过 SSH 执行以下命令：
+          ```bash
+          uname -m
+          ```
+          - 输出 `x86_64` 选择 x86_64 版本
+          - 输出 `aarch64` 选择 aarch64 版本
+          
+          ### Q3: 定时任务不执行？
+          **A**: 检查以下几点：
+          1. 确认任务已启用
+          2. 检查 cron 表达式是否正确
+          3. 查看系统日志：`logread | grep taskplan`
+          
+          ### Q4: 如何卸载 TaskPlan？
+          **A**: 
+          ```bash
+          opkg remove luci-app-taskplan
+          ```
+          
+          ---
+          
+          ## 注意事项
+          
+          - **任务冲突**：避免设置过多同时执行的任务
+          - **资源占用**：频繁执行的任务可能占用系统资源
+          - **权限检查**：确保任务执行命令有足够的权限
+          
+          ENDOFFILE
+
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: taskplan-${{ env.VERSION }}
           name: "TaskPlan ${{ env.LATEST_TAG }}"
+          body_path: release_notes.md
           files: makeself/taskplan_*.run

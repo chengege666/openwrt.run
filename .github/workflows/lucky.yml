@@ -79,9 +79,172 @@ jobs:
           ./makeself.sh lucky_x86_64/ lucky_${{ env.VERSION }}_x86_64.run "Lucky Installer x86_64" ./install.sh
           ./makeself.sh lucky_aarch64_generic/ lucky_${{ env.VERSION }}_aarch64.run "Lucky Installer aarch64" ./install.sh
 
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << 'ENDOFFILE'
+          ## Lucky（大吉） .run
+          
+          一款功能强大的内网穿透工具，支持多种协议，提供 Web 管理界面。
+          
+          ---
+          
+          ## 系统要求
+          
+          - **固件版本**：OpenWrt 或 ImmortalWrt `22.03+`
+          - **支持架构**：`x86_64`、`aarch64_generic`
+          - **磁盘空间**：至少 20MB 可用空间
+          - **权限要求**：root 权限
+          
+          ---
+          
+          ## 功能特性
+          
+          - **内网穿透**：支持 TCP/UDP/HTTP/HTTPS 等多种协议
+          - **Web 管理**：提供友好的 Web 管理界面
+          - **多平台支持**：支持 x86_64 和 ARM 架构
+          - **自动启动**：安装后自动启用并启动服务
+          - **配置简单**：通过 Web 界面轻松配置穿透规则
+          
+          ---
+          
+          ## 安装步骤
+          
+          ### 通过 SSH 安装
+          
+          **1. 上传安装包**
+          
+          方式 A - 使用 SCP（推荐）：
+          ```bash
+          # x86_64 设备
+          scp lucky_*_x86_64.run root@192.168.1.1:/tmp/
+          
+          # aarch64 设备
+          scp lucky_*_aarch64.run root@192.168.1.1:/tmp/
+          ```
+          
+          方式 B - 使用 WinSCP/FileZilla：
+          - 连接路由器（协议：SCP，端口：22）
+          - 将对应的 `.run` 文件上传到 `/tmp/` 目录
+          
+          **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 IPK 包！
+          
+          **2. 进入临时目录**
+          ```bash
+          cd /tmp
+          ```
+          
+          **3. 添加执行权限**
+          ```bash
+          # x86_64 设备
+          chmod +x lucky_*_x86_64.run
+          
+          # aarch64 设备
+          chmod +x lucky_*_aarch64.run
+          ```
+          
+          **4. 执行安装**
+          ```bash
+          # x86_64 设备
+          ./lucky_*_x86_64.run
+          
+          # aarch64 设备
+          ./lucky_*_aarch64.run
+          ```
+          
+          **5. 等待安装完成**
+          - 安装过程会自动解压并安装插件
+          - 服务会自动启动
+          - 看到安装成功提示后继续下一步
+          
+          **6. 刷新 LuCI 界面**
+          - 退出并重新登录 LuCI
+          - 在 **服务** 菜单下找到 **Lucky** 入口
+          
+          ---
+          
+          ## 验证安装
+          
+          **检查是否安装成功**：
+          ```bash
+          opkg list-installed | grep lucky
+          ```
+          
+          **查看服务状态**：
+          ```bash
+          /etc/init.d/lucky status
+          ```
+          
+          **访问 Web 界面**：
+          - 浏览器打开 `http://192.168.1.1:16601`
+          - 或在 LuCI 菜单：**服务 -> Lucky**
+          
+          ---
+          
+          ## 使用方法
+          
+          **1. 打开 Lucky 管理界面**
+          - 浏览器访问 `http://路由器IP:16601`
+          - 或在 LuCI 中找到 **服务 -> Lucky**
+          
+          **2. 配置穿透规则**
+          - 点击 **添加规则**
+          - 选择协议类型（TCP/UDP/HTTP/HTTPS）
+          - 填写本地端口和远程端口
+          - 保存配置
+          
+          **3. 启动穿透服务**
+          - 在规则列表中启用需要穿透的服务
+          - 点击 **应用** 保存配置
+          
+          **4. 查看连接状态**
+          - 在 **连接列表** 中查看当前连接状态
+          - 监控流量使用情况
+          
+          ---
+          
+          ## 常见问题
+          
+          ### Q1: 安装后无法访问 Web 界面？
+          **A**: 检查以下几点：
+          1. 确认服务已启动：`/etc/init.d/lucky status`
+          2. 检查防火墙是否放行 16601 端口
+          3. 尝试重启服务：`/etc/init.d/lucky restart`
+          
+          ### Q2: 如何确认我的设备架构？
+          **A**: 通过 SSH 执行以下命令：
+          ```bash
+          uname -m
+          ```
+          - 输出 `x86_64` 选择 x86_64 版本
+          - 输出 `aarch64` 选择 aarch64 版本
+          
+          ### Q3: 穿透规则不生效？
+          **A**: 检查以下几点：
+          1. 确认规则已启用
+          2. 检查本地服务是否正常运行
+          3. 查看 Lucky 日志排查问题
+          
+          ### Q4: 如何卸载 Lucky？
+          **A**: 
+          ```bash
+          opkg remove luci-app-lucky
+          opkg remove lucky
+          ```
+          
+          ---
+          
+          ## 注意事项
+          
+          - **端口冲突**：确保 16601 端口未被其他服务占用
+          - **防火墙设置**：穿透外部访问需要配置端口转发
+          - **安全性**：建议修改默认管理端口和密码
+          
+          ENDOFFILE
+
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: lucky-${{ env.VERSION }}
           name: "Lucky ${{ env.LATEST_TAG }}"
+          body_path: release_notes.md
           files: makeself/lucky_*.run
