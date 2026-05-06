@@ -45,6 +45,17 @@ jobs:
           cd partexp_build
           tar -xzf partexp.tar.gz
           rm partexp.tar.gz
+
+          echo "Archive contents:"
+          ls -laR
+
+          ipk_count=$(find . -name "*.ipk" | wc -l)
+          if [ "$ipk_count" -eq 0 ]; then
+            echo "Error: No IPK files found in archive"
+            exit 1
+          fi
+
+          echo "Found $ipk_count IPK file(s)"
           find . -name "*.ipk" -exec mv {} . \;
 
           echo "IPK files:"
