@@ -63,11 +63,12 @@ jobs:
           
           ## 安装步骤
           
-          ### 方法一：通过 SSH 安装（推荐）
+          ### 通过 SSH 安装
           
-          **1. 连接路由器**
+          **1. 安装 bash（必需）**
           ```bash
-          ssh root@192.168.1.1
+          opkg update
+          opkg install bash
           ```
           
           **2. 上传安装包**
@@ -83,18 +84,26 @@ jobs:
           
           **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 IPK 包！
           
-          **3. 执行安装**
+          **3. 进入临时目录**
           ```bash
           cd /tmp
+          ```
+          
+          **4. 添加执行权限**
+          ```bash
           chmod +x istore-reinstall.run
+          ```
+          
+          **5. 执行安装**
+          ```bash
           ./istore-reinstall.run
           ```
           
-          **4. 等待安装完成**
+          **6. 等待安装完成**
           - 安装过程会自动下载并安装 iStore 及其依赖组件
           - 看到 "iStore installed successfully" 或类似提示表示安装成功
           
-          **5. 刷新 LuCI 界面**
+          **7. 刷新 LuCI 界面**
           - 退出并重新登录 LuCI
           - 在 **服务** 菜单下找到 **iStore** 入口
           
