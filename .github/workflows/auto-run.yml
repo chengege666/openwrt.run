@@ -18,6 +18,7 @@ env:
   BUNDLE_NAME: "OpenWrt 插件合集 - 统一打包"
   MAX_WAIT_MINUTES: 300
   POLL_INTERVAL_SECONDS: 60
+  MAX_RETRY_COUNT: 1
 
 jobs:
   dispatch-and-collect:
