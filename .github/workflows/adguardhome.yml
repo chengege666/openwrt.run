@@ -1,9 +1,9 @@
-name: Build AdGuardHome Run Package
+name: Build AdGuardHome Run Package (LuCI)
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # 每天 UTC 06:00 自动检查新版本
-  workflow_dispatch:       # 支持手动触发
+    - cron: '0 6 * * *'
+  workflow_dispatch:
     inputs:
       force_version:
         description: '强制指定版本（留空则自动获取最新）'
@@ -36,7 +36,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
-          # 检查本仓库是否已存在该版本的 Release
           STATUS=$(curl -fsSL -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/${VERSION}" || true)
@@ -60,7 +59,9 @@ jobs:
             upstream_suffix: linux_amd64
           - arch: aarch64
             upstream_suffix: linux_arm64
+
     steps:
+      # ── 1. 下载 AdGuardHome 官方二进制 ──────────────────────────────────
       - name: 下载 AdGuardHome 二进制
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
@@ -69,104 +70,185 @@ jobs:
           echo "⬇️ 下载：${URL}"
           curl -fsSL -o "${FILENAME}" "${URL}"
           tar -xzf "${FILENAME}"
-          # 提取二进制（tar 内为 AdGuardHome/AdGuardHome）
           mv AdGuardHome/AdGuardHome ./AdGuardHome_bin
           chmod +x ./AdGuardHome_bin
-          echo "✅ 二进制准备完成"
 
-      - name: 创建安装脚本 install.sh
+      # ── 2. 拉取 luci-app-adguardhome 源码 ──────────────────────────────
+      - name: 克隆 luci-app-adguardhome
+        run: |
+          git clone --depth=1 \
+            https://github.com/rufengsuixing/luci-app-adguardhome.git \
+            luci-src
+          echo "✅ LuCI 源码获取完成"
+          ls luci-src/
+
+      # ── 3. 生成 install.sh ──────────────────────────────────────────────
+      - name: 生成 install.sh
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
-          cat > install.sh << 'EOF'
+          cat > install.sh << 'SCRIPT'
           #!/bin/sh
           set -e
 
-          BINARY_NAME="AdGuardHome"
-          INSTALL_BIN="/usr/bin/${BINARY_NAME}"
-          INIT_SCRIPT="/etc/init.d/${BINARY_NAME}"
+          VERSION="__VERSION__"
+          BINARY_DEST="/usr/bin/AdGuardHome"
+          INIT_SCRIPT="/etc/init.d/AdGuardHome"
           WORK_DIR="/etc/AdGuardHome"
+          UCI_CONF="/etc/config/AdGuardHome"
 
-          echo ">>> 安装 AdGuardHome ${VERSION} ..."
+          echo ""
+          echo "=================================================="
+          echo "  AdGuardHome ${VERSION} for OpenWrt - 安装程序"
+          echo "=================================================="
+          echo ""
 
-          # 1. 复制二进制
-          cp -f "${BINARY_NAME}_bin" "${INSTALL_BIN}"
-          chmod +x "${INSTALL_BIN}"
-          echo "✔ 二进制已安装到 ${INSTALL_BIN}"
-
-          # 2. 创建工作目录
+          # ── Step 1: 安装主程序二进制 ──────────────────────────
+          echo "[1/5] 安装主程序..."
+          cp -f AdGuardHome_bin "${BINARY_DEST}"
+          chmod +x "${BINARY_DEST}"
           mkdir -p "${WORK_DIR}"
 
-          # 3. 写入 OpenWrt procd 启动脚本
+          # ── Step 2: 安装 procd 启动脚本 ───────────────────────
+          echo "[2/5] 安装 procd 启动脚本..."
           cat > "${INIT_SCRIPT}" << 'INITEOF'
           #!/bin/sh /etc/rc.common
-
           USE_PROCD=1
           START=99
           STOP=01
 
           NAME="AdGuardHome"
-          BINARY="/usr/bin/AdGuardHome"
-          WORKDIR="/etc/AdGuardHome"
-          PIDFILE="/var/run/AdGuardHome.pid"
+          PROG="/usr/bin/AdGuardHome"
+          WORK_DIR="/etc/AdGuardHome"
 
           start_service() {
+              config_load AdGuardHome
+              local enabled port
+              config_get_bool enabled "config" "enabled" 0
+              [ "$enabled" = "0" ] && { echo "AdGuardHome 未启用，跳过启动"; return; }
+              config_get port "config" "port" "3000"
+
               procd_open_instance
-              procd_set_param command "$BINARY" \
-                  --work-dir "$WORKDIR" \
+              procd_set_param command "$PROG" \
+                  --work-dir "$WORK_DIR" \
                   --no-check-update \
-                  --pidfile "$PIDFILE"
+                  --web-addr "0.0.0.0:${port}"
               procd_set_param respawn
               procd_set_param stdout 1
               procd_set_param stderr 1
               procd_close_instance
           }
-
-          stop_service() {
-              if [ -f "$PIDFILE" ]; then
-                  kill "$(cat $PIDFILE)" 2>/dev/null || true
-              fi
-          }
-
-          reload_service() {
-              stop
-              start
-          }
           INITEOF
-
           chmod +x "${INIT_SCRIPT}"
-          echo "✔ 启动脚本已写入 ${INIT_SCRIPT}"
 
-          # 4. 启用并启动服务
+          # ── Step 3: 初始化 UCI 配置 ───────────────────────────
+          echo "[3/5] 初始化 UCI 配置..."
+          if [ ! -f "${UCI_CONF}" ]; then
+            cat > "${UCI_CONF}" << 'UCIEOF'
+          config AdGuardHome config
+                  option enabled '0'
+                  option port '3000'
+                  option redirect 'dnsmasq-upstream'
+          UCIEOF
+          fi
+
+          # ── Step 4: 安装 LuCI 文件 ────────────────────────────
+          echo "[4/5] 安装 LuCI 界面..."
+
+          # 控制器
+          mkdir -p /usr/lib/lua/luci/controller
+          cp -f luci/controller/adguardhome.lua \
+                /usr/lib/lua/luci/controller/adguardhome.lua
+
+          # CBI 模型
+          mkdir -p /usr/lib/lua/luci/model/cbi
+          cp -f luci/model/cbi/adguardhome.lua \
+                /usr/lib/lua/luci/model/cbi/adguardhome.lua
+
+          # 静态资源（如果有）
+          if [ -d luci/htdocs ]; then
+            cp -rf luci/htdocs/. /www/
+          fi
+
+          # i18n 翻译文件（中文）
+          if [ -d luci/i18n ]; then
+            mkdir -p /usr/lib/lua/luci/i18n
+            cp -f luci/i18n/adguardhome.zh-cn.lmo \
+                  /usr/lib/lua/luci/i18n/ 2>/dev/null || true
+          fi
+
+          # ── Step 5: 刷新 LuCI 缓存并启用服务 ─────────────────
+          echo "[5/5] 刷新 LuCI 缓存，启用服务..."
+          rm -rf /tmp/luci-indexcache /tmp/luci-modulecache /tmp/luci-*
           "${INIT_SCRIPT}" enable
-          "${INIT_SCRIPT}" start
 
-          echo ">>> AdGuardHome 安装完成并已启动！"
-          echo ">>> 请访问 http://<设备IP>:3000 完成初始化配置。"
-          EOF
+          echo ""
+          echo "✅ 安装完成！"
+          echo ""
+          echo "   👉 请到 LuCI → 服务 → AdGuardHome 中启用并配置"
+          echo "   👉 首次启动后访问 http://<设备IP>:3000 完成向导"
+          echo ""
+          SCRIPT
 
-          # 替换脚本中的版本占位符
-          sed -i "s/\${VERSION}/${VERSION}/g" install.sh
+          # 替换版本占位符
+          sed -i "s/__VERSION__/${VERSION}/g" install.sh
           chmod +x install.sh
 
-      - name: 安装 makeself 并打包 .run
+      # ── 4. 整理 LuCI 源文件到打包目录 ──────────────────────────────────
+      - name: 整理 LuCI 文件
+        run: |
+          mkdir -p pkg/luci/controller
+          mkdir -p pkg/luci/model/cbi
+          mkdir -p pkg/luci/i18n
+
+          # 控制器
+          cp luci-src/luasrc/controller/adguardhome.lua \
+             pkg/luci/controller/adguardhome.lua 2>/dev/null || \
+          cp luci-src/luasrc/controller/*.lua \
+             pkg/luci/controller/ 2>/dev/null || true
+
+          # CBI 模型
+          cp luci-src/luasrc/model/cbi/adguardhome.lua \
+             pkg/luci/model/cbi/adguardhome.lua 2>/dev/null || \
+          cp luci-src/luasrc/model/cbi/*.lua \
+             pkg/luci/model/cbi/ 2>/dev/null || true
+
+          # 静态资源
+          if [ -d luci-src/htdocs ]; then
+            cp -r luci-src/htdocs pkg/luci/htdocs
+          fi
+
+          # i18n（lmo 编译文件或 po 源文件）
+          find luci-src -name "*.lmo" -exec cp {} pkg/luci/i18n/ \; 2>/dev/null || true
+          find luci-src -name "*.po"  -exec cp {} pkg/luci/i18n/ \; 2>/dev/null || true
+
+          echo "📦 LuCI 文件整理完成："
+          find pkg/luci -type f
+
+      # ── 5. 用 makeself 打包 ─────────────────────────────────────────────
+      - name: 打包 .run
         run: |
           sudo apt-get install -y makeself
           VERSION="${{ needs.check-version.outputs.version }}"
-          # 纯版本号（去掉 v 前缀）
           VER="${VERSION#v}"
-          PACKAGE_DIR="adguardhome_pkg"
           OUTPUT="AdGuardHome_${VER}_${{ matrix.arch }}.run"
 
-          mkdir -p "${PACKAGE_DIR}"
-          cp AdGuardHome_bin "${PACKAGE_DIR}/"
-          cp install.sh "${PACKAGE_DIR}/"
+          # 最终打包目录结构：
+          #   pkg/
+          #   ├── AdGuardHome_bin       主程序
+          #   ├── install.sh            安装脚本
+          #   └── luci/                 LuCI 文件
+          #       ├── controller/
+          #       ├── model/cbi/
+          #       └── i18n/
+          cp AdGuardHome_bin pkg/
+          cp install.sh pkg/
 
           makeself \
             --sha256 \
             --needroot \
-            "${PACKAGE_DIR}" \
+            pkg \
             "${OUTPUT}" \
-            "AdGuardHome ${VERSION} for OpenWrt (${{ matrix.arch }})" \
+            "AdGuardHome ${VERSION} + LuCI for OpenWrt (${{ matrix.arch }})" \
             ./install.sh
 
           echo "✅ 打包完成：${OUTPUT}"
@@ -193,35 +275,32 @@ jobs:
           merge-multiple: true
           path: dist/
 
-      - name: 列出产物
-        run: ls -lh dist/
-
       - name: 创建 GitHub Release 并上传
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.check-version.outputs.version }}
-          name: "AdGuardHome ${{ needs.check-version.outputs.version }}"
+          name: "AdGuardHome ${{ needs.check-version.outputs.version }} + LuCI"
           body: |
-            ## AdGuardHome ${{ needs.check-version.outputs.version }} for OpenWrt
+            ## AdGuardHome ${{ needs.check-version.outputs.version }} for OpenWrt（含 LuCI 界面）
 
-            自动构建自 [AdguardTeam/AdGuardHome](${{ needs.check-version.outputs.version }}) 官方 Release。
+            自动构建，包含：
+            - ✅ AdGuardHome 官方预编译二进制
+            - ✅ procd 启动脚本（支持 UCI 配置）
+            - ✅ LuCI 管理界面（服务 → AdGuardHome）
 
             ### 安装方法
 
             ```sh
-            # x86_64
+            # 上传 .run 到路由器后执行（需要 root）
             chmod +x AdGuardHome_*_x86_64.run
             ./AdGuardHome_*_x86_64.run
-
-            # aarch64
-            chmod +x AdGuardHome_*_aarch64.run
-            ./AdGuardHome_*_aarch64.run
             ```
 
-            安装完成后访问 `http://<设备IP>:3000` 完成初始化。
+            安装后在 LuCI → **服务 → AdGuardHome** 中启用，首次启动后访问 `:3000` 完成向导。
 
             ### 上游来源
-            https://github.com/AdguardTeam/AdGuardHome/releases/tag/${{ needs.check-version.outputs.version }}
+            - AdGuardHome: https://github.com/AdguardTeam/AdGuardHome/releases/tag/${{ needs.check-version.outputs.version }}
+            - LuCI App: https://github.com/rufengsuixing/luci-app-adguardhome
           files: dist/*.run
           draft: false
           prerelease: false
