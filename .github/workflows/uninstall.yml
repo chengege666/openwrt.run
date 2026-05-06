@@ -1,0 +1,77 @@
+name: Build Uninstall高级卸载 .run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest version info
+        id: fetch_version
+        run: |
+          echo "获取最新版本信息..."
+          PAGE_CONTENT=$(curl -sk "https://xz.vumstar.com/")
+          
+          VERSION=$(echo "$PAGE_CONTENT" | grep -oP 'v\d+\.\d+\.\d+' | head -1)
+          DATE=$(echo "$PAGE_CONTENT" | grep -A1 "$VERSION" | grep -oP '\d{4}-\d{1,2}-\d{1,2}' | head -1)
+          
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "DATE=$DATE" >> $GITHUB_ENV
+          echo "LATEST_VERSION=$VERSION" >> $GITHUB_OUTPUT
+          
+          echo "最新版本: $VERSION"
+          echo "发布日期: $DATE"
+
+      - name: Download uninstall packages
+        run: |
+          mkdir -p uninstall_x86_64 uninstall_aarch64
+          
+          echo "下载 x86_64 版本..."
+          curl -skL "https://xz.vumstar.com/download" -o "uninstall_x86_64/luci-app-uninstall_x86_64.run"
+          
+          echo "下载 aarch64 版本..."
+          curl -skL "https://xz.vumstar.com/download" -o "uninstall_aarch64/luci-app-uninstall_aarch64.run"
+          
+          echo "文件信息:"
+          ls -lh uninstall_x86_64/
+          ls -lh uninstall_aarch64/
+
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << EOF
+          ## 高级卸载 For iStoreOS ${{ env.VERSION }}
+          
+          一站式快速不留痕卸载插件，X86设备、ARM设备均支持。
+          
+          ### 版本信息
+          - 版本号: ${{ env.VERSION }}
+          - 发布日期: ${{ env.DATE }}
+          - 官网: https://xz.vumstar.com/
+          
+          ### 支持平台
+          - x86_64
+          - aarch64
+          
+          ### 安装方式
+          \`\`\`bash
+          chmod +x luci-app-uninstall_*.run
+          ./luci-app-uninstall_*.run
+          \`\`\`
+          EOF
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: uninstall-${{ env.VERSION }}
+          name: "高级卸载 ${{ env.VERSION }}"
+          body_path: release_notes.md
+          files: |
+            uninstall_x86_64/luci-app-uninstall_x86_64.run
+            uninstall_aarch64/luci-app-uninstall_aarch64.run
