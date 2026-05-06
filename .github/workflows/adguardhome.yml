@@ -2,11 +2,6 @@ name: Make AdGuardHome run files
 
 on:
   workflow_dispatch:
-    inputs:
-      package_version:
-        description: 'OpenWrt 版本 (packages-23.05 / packages-24.10)'
-        required: false
-        default: 'packages-24.10'
 
 permissions:
   contents: write
@@ -17,14 +12,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set PACKAGE_VERSION
-        run: |
-          package_version="${{ github.event.inputs.package_version }}"
-          if [ -z "$package_version" ]; then
-            package_version="packages-24.10"
-          fi
-          echo "PACKAGE_VERSION=$package_version" >> $GITHUB_ENV
 
       - name: Fetch latest release tag from AdGuardHome
         id: fetch_latest_tag
@@ -52,33 +39,21 @@ jobs:
           echo "aarch64 文件:"
           ls AdGuardHome_aarch64
 
-      - name: Download luci-app-adguardhome IPK from kiddin9 feed
+      - name: Download luci-app-adguardhome IPK from GitHub Releases
         run: |
-          BASE_URL="https://dl.openwrt.ai/${{ env.PACKAGE_VERSION }}"
-          ARCH_LIST="x86_64 aarch64_cortex-a53"
+          echo "从 rufengsuixing/luci-app-adguardhome 获取最新 LuCI 界面..."
+          LUCI_RELEASES=$(curl -sk "https://api.github.com/repos/rufengsuixing/luci-app-adguardhome/releases/latest")
+          LUCI_TAG=$(echo "$LUCI_RELEASES" | jq -r '.tag_name')
+          LUCI_URL=$(echo "$LUCI_RELEASES" | jq -r '.assets[] | select(.name | test("luci-app-adguardhome_.*_all.ipk")) | .browser_download_url' | head -1)
 
-          for ARCH in $ARCH_LIST; do
-            DIR=""
-            case "$ARCH" in
-              x86_64) DIR="AdGuardHome_x86_64" ;;
-              aarch64_cortex-a53) DIR="AdGuardHome_aarch64" ;;
-            esac
+          echo "LuCI 版本: $LUCI_TAG"
+          echo "下载: $LUCI_URL"
 
-            echo "从 $ARCH feed 获取 luci-app-adguardhome..."
-            FEED_URL="${BASE_URL}/${ARCH}/kiddin9/"
-            INDEX_HTML=$(wget -qO- --timeout=15 "${FEED_URL}/")
-            IPK_FILE=$(echo "$INDEX_HTML" | grep -oP 'luci-app-adguardhome_[^"< ]*_all\.ipk' | sort -V | tail -1)
+          curl -L --connect-timeout 30 -m 600 -kLo "AdGuardHome_x86_64/luci-app-adguardhome_all.ipk" "$LUCI_URL"
+          cp "AdGuardHome_x86_64/luci-app-adguardhome_all.ipk" "AdGuardHome_aarch64/luci-app-adguardhome_all.ipk"
 
-            if [ -n "$IPK_FILE" ]; then
-              echo "找到: $IPK_FILE"
-              wget -q --timeout=30 -O "${DIR}/luci-app-adguardhome_all.ipk" "${FEED_URL}${IPK_FILE}"
-              test -s "${DIR}/luci-app-adguardhome_all.ipk" && echo "下载成功" || echo "下载失败"
-            else
-              echo "错误: 未找到 luci-app-adguardhome IPK"
-              exit 1
-            fi
-            ls -lh "${DIR}/luci-app-adguardhome_all.ipk"
-          done
+          echo "文件信息:"
+          ls -lh AdGuardHome_x86_64/luci-app-adguardhome_all.ipk
 
       - name: Create install.sh scripts
         run: |
@@ -139,8 +114,8 @@ jobs:
 
             包含:
             - **AdGuardHome** ${{ env.LATEST_TAG }} (DNS 广告过滤核心)
-            - **luci-app-adguardhome** (OpenWrt 官方 LuCI 界面)
-            - 来源: kiddin9 feed (${{ env.PACKAGE_VERSION }})
+            - **luci-app-adguardhome** (LuCI 界面, 来自 rufengsuixing)
+            - 来源: rufengsuixing/luci-app-adguardhome
 
             支持架构: x86_64 / aarch64 (arm64)
 
