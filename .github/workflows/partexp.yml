@@ -66,19 +66,19 @@ jobs:
       - name: Create install.sh
         run: |
           cat << 'EOF' > partexp_build/install.sh
-#!/bin/sh
-echo "===> 正在更新软件源..."
-opkg update
-echo "===> 正在安装 Partexp..."
-opkg install --force-depends *.ipk
-echo "===> 刷新 LuCI 缓存..."
-rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
-echo "===> 重启 LuCI 服务..."
-/etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null
-/etc/init.d/rpcd restart 2>/dev/null
-echo "===> Partexp 安装完成。"
-echo "请在 LuCI 中打开 Partexp 进行配置。"
-EOF
+          #!/bin/sh
+          echo "===> Updating package list..."
+          opkg update
+          echo "===> Installing Partexp..."
+          opkg install --force-depends *.ipk
+          echo "===> Refreshing LuCI cache..."
+          rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
+          echo "===> Restarting LuCI services..."
+          /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null
+          /etc/init.d/rpcd restart 2>/dev/null
+          echo "===> Partexp installed successfully."
+          echo "Please open LuCI to configure Partexp."
+          EOF
           chmod +x partexp_build/install.sh
 
       - name: Create self-extracting package
