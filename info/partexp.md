@@ -1,19 +1,19 @@
 # Partexp .run
 
-- Source: `https://github.com/sirpdboy/luci-app-partexp/releases`
-- Included packages: `luci-app-partexp`
-- Supported architectures: `all` (architecture-independent)
-- Runtime requirements: OpenWrt or ImmortalWrt `22.03+`
+- 来源：`https://github.com/sirpdboy/luci-app-partexp/releases`
+- 包含软件包：`luci-app-partexp`
+- 支持架构：`all`（与架构无关）
+- 运行要求：OpenWrt 或 ImmortalWrt `22.03+`
 
-## Features
+## 功能
 
-- One-click automatic partition formatting
-- Partition expansion and automatic mounting
-- Designed specifically for OpenWRT
+- 一键自动分区格式化
+- 分区扩容与自动挂载
+- 专为 OpenWRT 设计
 
-## Usage
+## 使用方法
 
-Upload the generated `.run` file to `/tmp` and execute:
+将生成的 `.run` 文件上传到 `/tmp` 并执行：
 
 ```sh
 chmod +x /tmp/partexp-*.run
