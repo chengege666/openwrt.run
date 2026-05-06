@@ -1,0 +1,66 @@
+name: Make SmartDNS run files
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  make-run:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install makeself
+        run: sudo apt-get update && sudo apt-get install -y makeself curl jq
+
+      - name: Download SmartDNS packages
+        run: |
+          chmod +x shell/smartdns.sh
+          ./shell/smartdns.sh
+
+      - name: Copy install.sh
+        run: |
+          chmod +x shell/smartdns-install.sh
+          cp shell/smartdns-install.sh x86_64/install.sh
+          cp shell/smartdns-install.sh aarch64_generic/install.sh
+          cp shell/smartdns-install.sh aarch64_cortex-a53/install.sh
+
+      - name: Extract version and pack
+        id: pack
+        run: |
+          mkdir -p output
+
+          VERSION="$(cat /tmp/smartdns_version.txt)"
+
+          if [ -z "$VERSION" ]; then
+            echo "无法提取版本号"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "$VERSION"
+
+          for PLATFORM in x86_64 aarch64_generic aarch64_cortex-a53; do
+            makeself "$PLATFORM" "output/luci-app-smartdns-${VERSION}_${PLATFORM}.run" \
+              "smartdns ${PLATFORM} Installer v${VERSION}" ./install.sh
+          done
+
+      - name: Clean version
+        id: clean_version
+        run: |
+          version="${{ steps.pack.outputs.version }}"
+          version="${version%%~*}"
+          echo "VERSION_CLEAN=$version" >> "$GITHUB_ENV"
+          echo "cleaned_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "smartdns-${{ steps.clean_version.outputs.cleaned_version }}"
+          name: "smartdns-${{ steps.clean_version.outputs.cleaned_version }}"
+          body_path: ${{ github.workspace }}/info/smartdns.md
+          files: output/*.run
