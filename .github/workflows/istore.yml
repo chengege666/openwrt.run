@@ -1,4 +1,4 @@
-name: Build iStore .run
+name: Build iStore（应用商店） .run
 
 on:
   workflow_dispatch:

@@ -1,4 +1,4 @@
-name: Build Lucky .run
+name: Build Lucky（大吉） .run
 
 on:
   workflow_dispatch:

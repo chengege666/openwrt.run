@@ -1,4 +1,4 @@
-name: Build Argon Theme .run
+name: Build Argon（主题） .run
 
 on:
   workflow_dispatch:
