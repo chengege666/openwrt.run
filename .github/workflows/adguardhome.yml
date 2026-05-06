@@ -59,15 +59,13 @@ jobs:
         run: |
           cat << 'EOF' > AdGuardHome_x86_64/install.sh
           #!/bin/sh
-          echo "===> 更新软件源..."
-          opkg update || { echo "update failed"; exit 1; }
-
-          echo "===> 安装 luci-app-adguardhome"
-          opkg install luci-app-adguardhome_all.ipk || { echo "安装失败"; exit 1; }
-
           echo "===> 更新 AdGuardHome 核心"
           cp AdGuardHome/AdGuardHome /usr/bin/AdGuardHome
           chmod +x /usr/bin/AdGuardHome
+
+          echo "===> 安装 luci-app-adguardhome"
+          opkg update
+          opkg install --force-depends luci-app-adguardhome_all.ipk
 
           echo "===> 刷新 LuCI 缓存"
           rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
