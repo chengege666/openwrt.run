@@ -16,23 +16,31 @@ jobs:
       - name: Clone makeself repository
         run: git clone https://github.com/megastep/makeself.git
 
-      - name: Create install.sh
+      - name: Download luci-app-adguardhome IPK from rufengsuixing
         run: |
           mkdir -p pkg
+          echo "从 rufengsuixing/luci-app-adguardhome 获取最新 LuCI 界面..."
+          LUCI_RELEASES=$(curl -sk "https://api.github.com/repos/rufengsuixing/luci-app-adguardhome/releases/latest")
+          LUCI_TAG=$(echo "$LUCI_RELEASES" | jq -r '.tag_name')
+          LUCI_URL=$(echo "$LUCI_RELEASES" | jq -r '.assets[] | select(.name | test("luci-app-adguardhome_.*_all.ipk")) | .browser_download_url' | head -1)
+
+          echo "LuCI 版本: $LUCI_TAG"
+          echo "下载: $LUCI_URL"
+
+          curl -L --connect-timeout 30 -m 600 -kLo "pkg/luci-app-adguardhome_all.ipk" "$LUCI_URL"
+          ls -lh pkg/
+          file pkg/luci-app-adguardhome_all.ipk
+
+      - name: Create install.sh
+        run: |
           cat << 'EOF' > pkg/install.sh
           #!/bin/sh
-          echo "===> 更新软件源..."
-          opkg update
-          if [ $? -ne 0 ]; then
-            echo "update failed"
-            exit 1
-          fi
-
           echo "===> 安装 luci-app-adguardhome"
-          opkg install luci-app-adguardhome luci-i18n-adguardhome-zh-cn
+          opkg update
+          opkg install --force-depends luci-app-adguardhome_all.ipk
 
           echo "===> 刷新 LuCI 缓存"
-          rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
+          rm -rf /tmp/luci-modulecache /tmp/luci-indexcache /tmp/luci-*
           /etc/init.d/rpcd restart 2>/dev/null || true
           /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null || true
 
@@ -40,8 +48,11 @@ jobs:
           echo "============================================"
           echo "  安装完成！"
           echo ""
-          echo "  如需更新核心，请自行下载:"
-          echo "  https://github.com/AdguardTeam/AdGuardHome/releases/download/{版本号}/AdGuardHome_linux_{架构}.tar.gz"
+          echo "  在 LuCI 菜单中查找 AdGuard Home："
+          echo "  如果使用 Argon 主题，菜单位于 服务 -> AdGuard Home"
+          echo "  如果使用其他主题，可能在 系统 -> AdGuard Home"
+          echo ""
+          echo "  如未找到菜单，请退出登录后重新进入 LuCI。"
           echo "============================================"
           EOF
           chmod +x pkg/install.sh
@@ -50,30 +61,30 @@ jobs:
         run: |
           mv pkg makeself/
           cd makeself
-          ./makeself.sh pkg/ AdGuardHome_Installer.run \
-            "AdGuardHome LuCI Online Installer" ./install.sh
+          ./makeself.sh pkg/ AdGuardHome_LuCI_Installer.run \
+            "luci-app-adguardhome by rufengsuixing" ./install.sh
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: AdGuardHome_Installer
-          name: "AdGuardHome LuCI 在线安装器"
+          tag_name: AdGuardHome_LuCI_Installer
+          name: "AdGuardHome LuCI 界面 (rufengsuixing)"
           body: |
-            ## AdGuardHome LuCI 在线安装器
+            ## AdGuardHome LuCI 界面 (rufengsuixing)
 
-            此安装器不包含任何 IPK 包，执行时会从路由器已配置的软件源在线安装。
+            仅包含 **luci-app-adguardhome**（LuCI 管理界面），不包含 AdGuardHome 核心。
 
             ### 安装方式
 
             ```bash
             cd /tmp
-            chmod +x AdGuardHome_Installer.run
-            ./AdGuardHome_Installer.run
+            chmod +x AdGuardHome_LuCI_Installer.run
+            ./AdGuardHome_LuCI_Installer.run
             ```
 
-            ### 说明
+            ### 核心升级
 
-            - 安装 `luci-app-adguardhome` + 中文翻译包
-            - 不包含 AdGuardHome 核心，安装后请自行下载更新核心
-            - 需要路由器能正常连接软件源
-          files: makeself/AdGuardHome_Installer.run
+            安装 LoCI 后，打开 LuCI 菜单 -> 服务/系统 -> AdGuard Home，界面内有**在线下载核心**功能。
+            也可以手动下载：
+            - https://github.com/AdguardTeam/AdGuardHome/releases
+          files: makeself/AdGuardHome_LuCI_Installer.run
