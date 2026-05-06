@@ -56,6 +56,11 @@ jobs:
           echo "等待所有工作流完成..."
           START_TIME=$(date +%s)
           MAX_WAIT=$((MAX_WAIT_MINUTES * 60))
+          
+          declare -A RETRY_COUNT
+          for workflow_name in $(echo "${{ steps.trigger.outputs.triggered_list }}" | tr ',' ' '); do
+            RETRY_COUNT[$workflow_name]=0
+          done
 
           while true; do
             CURRENT_TIME=$(date +%s)
@@ -69,6 +74,7 @@ jobs:
 
             ALL_DONE=true
             WORKFLOW_STATUS=""
+            FAILED_WORKFLOWS=""
 
             for workflow_name in $(echo "${{ steps.trigger.outputs.triggered_list }}" | tr ',' ' '); do
               workflow_file="${workflow_name}.yml"
@@ -85,6 +91,19 @@ jobs:
                 CONCLUSION=$(echo "$LATEST_RUN" | jq -r '.conclusion')
                 echo "  $workflow_file 完成，结果: $CONCLUSION"
                 WORKFLOW_STATUS="${WORKFLOW_STATUS}${workflow_name}:${CONCLUSION},"
+
+                if [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+                  CURRENT_RETRY=${RETRY_COUNT[$workflow_name]}
+                  if [ "$CURRENT_RETRY" -lt "$MAX_RETRY_COUNT" ]; then
+                    echo "  ⚠️ $workflow_file 失败，正在重试 (第 $((CURRENT_RETRY + 1)) 次)..."
+                    gh workflow run "$workflow_file" --repo "${{ github.repository }}"
+                    RETRY_COUNT[$workflow_name]=$((CURRENT_RETRY + 1))
+                    ALL_DONE=false
+                    FAILED_WORKFLOWS="${FAILED_WORKFLOWS}${workflow_name},"
+                  else
+                    echo "  ❌ $workflow_file 已达最大重试次数，跳过"
+                  fi
+                fi
               fi
             done
 
@@ -93,6 +112,10 @@ jobs:
               echo "status=completed" >> $GITHUB_OUTPUT
               echo "results=${WORKFLOW_STATUS%,}" >> $GITHUB_OUTPUT
               break
+            fi
+
+            if [ -n "$FAILED_WORKFLOWS" ]; then
+              echo "已重试: ${FAILED_WORKFLOWS%,}，等待完成..."
             fi
 
             echo "等待 ${POLL_INTERVAL_SECONDS} 秒后重试..."
