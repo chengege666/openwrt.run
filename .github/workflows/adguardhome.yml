@@ -1,110 +1,100 @@
-name: Build AdGuardHome .run
+name: Make AdGuardHome run files
 
 on:
   workflow_dispatch:
+    inputs:
+      package_version:
+        description: 'OpenWrt 版本 (packages-23.05 / packages-24.10)'
+        required: false
+        default: 'packages-24.10'
 
 permissions:
   contents: write
 
 jobs:
-  get-version:
-    runs-on: ubuntu-22.04
-    outputs:
-      adg_version: ${{ steps.version.outputs.adg_version }}
-      adg_tag: ${{ steps.version.outputs.adg_tag }}
-    steps:
-      - name: Fetch latest versions
-        id: version
-        run: |
-          ADG_TAG=$(curl -sk https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r '.tag_name')
-          ADG_VERSION="${ADG_TAG#v}"
-          echo "adg_tag=$ADG_TAG" >> $GITHUB_OUTPUT
-          echo "adg_version=$ADG_VERSION" >> $GITHUB_OUTPUT
-          echo "AdGuardHome: $ADG_TAG"
-
   build:
-    needs: get-version
-    strategy:
-      matrix:
-        arch:
-          - label: x86_64
-            binary_suffix: linux_amd64
-          - label: aarch64
-            binary_suffix: linux_arm64
-      fail-fast: false
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set PACKAGE_VERSION
+        run: |
+          package_version="${{ github.event.inputs.package_version }}"
+          if [ -z "$package_version" ]; then
+            package_version="packages-24.10"
+          fi
+          echo "PACKAGE_VERSION=$package_version" >> $GITHUB_ENV
+
+      - name: Fetch latest release tag from AdGuardHome
+        id: fetch_latest_tag
+        run: |
+          latest_tag=$(curl -sk https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r '.tag_name')
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+          echo "版本: $latest_tag"
+
       - name: Clone makeself repository
         run: git clone https://github.com/megastep/makeself.git
 
-      - name: Download packages
+      - name: Download AdGuardHome binaries
         run: |
-          mkdir -p pkg
+          echo "下载 AdGuardHome ${{ env.LATEST_TAG }} 各架构二进制..."
+          curl -LO "https://github.com/AdguardTeam/AdGuardHome/releases/download/${{ env.LATEST_TAG }}/AdGuardHome_linux_amd64.tar.gz"
+          tar --one-top-level=AdGuardHome_x86_64 -xzf AdGuardHome_linux_amd64.tar.gz
+          rm AdGuardHome_linux_amd64.tar.gz
 
-          ADG_RELEASES=$(curl -sk "https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest")
-          ADG_URL=$(echo "$ADG_RELEASES" | jq -r '.assets[] | select(.name | test("AdGuardHome_${{ matrix.arch.binary_suffix }}.tar.gz")) | .browser_download_url' | head -1)
-          echo "下载 AdGuardHome 二进制: $ADG_URL"
-          curl -L --connect-timeout 30 -m 600 -kLo "pkg/AdGuardHome.tar.gz" "$ADG_URL"
+          curl -LO "https://github.com/AdguardTeam/AdGuardHome/releases/download/${{ env.LATEST_TAG }}/AdGuardHome_linux_arm64.tar.gz"
+          tar --one-top-level=AdGuardHome_aarch64 -xzf AdGuardHome_linux_arm64.tar.gz
+          rm AdGuardHome_linux_arm64.tar.gz
 
-          LUCI_RELEASES=$(curl -sk "https://api.github.com/repos/xptsp/luci-app-adguardhome/releases/latest")
-          LUCI_URL=$(echo "$LUCI_RELEASES" | jq -r '.assets[] | select(.name | test("luci-app-adguardhome_.*_all.ipk")) | .browser_download_url' | head -1)
-          LUCI_ZH_URL=$(echo "$LUCI_RELEASES" | jq -r '.assets[] | select(.name | test("luci-i18n-adguardhome-zh-cn_.*_all.ipk")) | .browser_download_url' | head -1)
+          echo "x86_64 文件:"
+          ls AdGuardHome_x86_64
+          echo "aarch64 文件:"
+          ls AdGuardHome_aarch64
 
-          echo "下载 LuCI 界面..."
-          curl -L --connect-timeout 30 -m 600 -kLo "pkg/luci-app-adguardhome.ipk" "$LUCI_URL"
-          [ -n "$LUCI_ZH_URL" ] && [ "$LUCI_ZH_URL" != "null" ] && curl -L --connect-timeout 30 -m 600 -kLo "pkg/luci-i18n-adguardhome-zh-cn.ipk" "$LUCI_ZH_URL"
-
-          echo "解压二进制..."
-          cd pkg && tar -xzf AdGuardHome.tar.gz && rm AdGuardHome.tar.gz && cd ..
-
-          echo "文件信息:"
-          ls -lh pkg/
-
-      - name: Create install.sh
+      - name: Download luci-app-adguardhome IPK from kiddin9 feed
         run: |
-          cat > pkg/install.sh << 'INSTALLEOF'
+          BASE_URL="https://dl.openwrt.ai/${{ env.PACKAGE_VERSION }}"
+          ARCH_LIST="x86_64 aarch64_cortex-a53"
+
+          for ARCH in $ARCH_LIST; do
+            DIR=""
+            case "$ARCH" in
+              x86_64) DIR="AdGuardHome_x86_64" ;;
+              aarch64_cortex-a53) DIR="AdGuardHome_aarch64" ;;
+            esac
+
+            echo "从 $ARCH feed 获取 luci-app-adguardhome..."
+            FEED_URL="${BASE_URL}/${ARCH}/kiddin9/"
+            INDEX_HTML=$(wget -qO- --timeout=15 "${FEED_URL}/")
+            IPK_FILE=$(echo "$INDEX_HTML" | grep -oP 'luci-app-adguardhome_[^"< ]*_all\.ipk' | sort -V | tail -1)
+
+            if [ -n "$IPK_FILE" ]; then
+              echo "找到: $IPK_FILE"
+              wget -q --timeout=30 -O "${DIR}/luci-app-adguardhome_all.ipk" "${FEED_URL}${IPK_FILE}"
+              test -s "${DIR}/luci-app-adguardhome_all.ipk" && echo "下载成功" || echo "下载失败"
+            else
+              echo "错误: 未找到 luci-app-adguardhome IPK"
+              exit 1
+            fi
+            ls -lh "${DIR}/luci-app-adguardhome_all.ipk"
+          done
+
+      - name: Create install.sh scripts
+        run: |
+          cat << 'EOF' > AdGuardHome_x86_64/install.sh
           #!/bin/sh
+          echo "===> 更新软件源..."
+          opkg update || { echo "update failed"; exit 1; }
 
-          echo "===> 安装 AdGuardHome + LuCI 界面"
+          echo "===> 安装 luci-app-adguardhome"
+          opkg install luci-app-adguardhome_all.ipk || { echo "安装失败"; exit 1; }
 
-          echo "===> 第一步: 安装 LuCI 界面"
-          opkg install --force-depends luci-app-adguardhome.ipk
-          if [ -f luci-i18n-adguardhome-zh-cn.ipk ]; then
-            opkg install --force-depends luci-i18n-adguardhome-zh-cn.ipk
-          fi
-
-          echo "===> 第二步: 安装 AdGuardHome 二进制"
-          mkdir -p /usr/bin
-          cp AdGuardHome /usr/bin/AdGuardHome
+          echo "===> 更新 AdGuardHome 核心"
+          cp AdGuardHome/AdGuardHome /usr/bin/AdGuardHome
           chmod +x /usr/bin/AdGuardHome
 
-          echo "===> 第三步: 创建 procd 服务"
-          cat << 'SVC' > /etc/init.d/AdGuardHome
-          #!/bin/sh /etc/rc.common
-          START=95
-          USE_PROCD=1
-          PROG=/usr/bin/AdGuardHome
-
-          start_service() {
-            procd_open_instance
-            procd_set_param command $PROG -c /etc/AdGuardHome/AdGuardHome.yaml -w /etc/AdGuardHome --no-check-update
-            procd_set_param respawn
-            procd_close_instance
-          }
-
-          stop_service() {
-            service_stop $PROG
-          }
-          SVC
-
-          chmod +x /etc/init.d/AdGuardHome
-          /etc/init.d/AdGuardHome enable
-          /etc/init.d/AdGuardHome start 2>/dev/null || true
-
-          echo "===> 第四步: 刷新 LuCI 缓存"
+          echo "===> 刷新 LuCI 缓存"
           rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
           /etc/init.d/rpcd restart 2>/dev/null || true
           /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null || true
@@ -118,48 +108,39 @@ jobs:
           echo ""
           echo "  首次访问请完成初始化设置。"
           echo "============================================"
-          INSTALLEOF
+          EOF
 
-          chmod +x pkg/install.sh
+          chmod +x AdGuardHome_x86_64/install.sh
+          cp AdGuardHome_x86_64/install.sh AdGuardHome_aarch64/install.sh
 
-      - name: Create self-extracting package
+      - name: Move to makeself
         run: |
-          mkdir -p makeself/pkg
-          mv pkg/* makeself/pkg/
+          mv AdGuardHome_x86_64 makeself/
+          mv AdGuardHome_aarch64 makeself/
+
+      - name: Create self-extracting packages
+        run: |
           cd makeself
-          ./makeself.sh pkg/ AdGuardHome_${{ needs.get-version.outputs.adg_version }}_${{ matrix.arch.label }}.run \
-            "AdGuardHome ${{ needs.get-version.outputs.adg_tag }} + LuCI - ${{ matrix.arch.label }}" ./install.sh
+          ./makeself.sh AdGuardHome_x86_64/ AdGuardHome_${{ env.LATEST_TAG }}_x86_64.run \
+            "AdGuardHome ${{ env.LATEST_TAG }} Installer x86_64" ./install.sh
+          ./makeself.sh AdGuardHome_aarch64/ AdGuardHome_${{ env.LATEST_TAG }}_aarch64.run \
+            "AdGuardHome ${{ env.LATEST_TAG }} Installer aarch64" ./install.sh
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: adguardhome-${{ matrix.arch.label }}
-          path: makeself/AdGuardHome_*.run
-
-  release:
-    needs: [get-version, build]
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: adguardhome-*
-          merge-multiple: true
-
-      - name: List files
-        run: ls -lh
+      - name: Check file sizes
+        run: ls -lh makeself/AdGuardHome_*.run
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: adguardhome-${{ needs.get-version.outputs.adg_version }}
-          name: "AdGuardHome ${{ needs.get-version.outputs.adg_tag }} + LuCI"
+          tag_name: AdGuardHome_${{ env.LATEST_TAG }}
+          name: "AdGuardHome-${{ env.LATEST_TAG }}"
           body: |
-            ## AdGuardHome ${{ needs.get-version.outputs.adg_tag }} + LuCI 界面
+            ## AdGuardHome ${{ env.LATEST_TAG }}
 
-            包含组件:
-            - **AdGuardHome** ${{ needs.get-version.outputs.adg_tag }} (DNS 广告过滤)
-            - **luci-app-adguardhome** (LuCI 管理界面)
+            包含:
+            - **AdGuardHome** ${{ env.LATEST_TAG }} (DNS 广告过滤核心)
+            - **luci-app-adguardhome** (OpenWrt 官方 LuCI 界面)
+            - 来源: kiddin9 feed (${{ env.PACKAGE_VERSION }})
 
             支持架构: x86_64 / aarch64 (arm64)
 
@@ -172,4 +153,4 @@ jobs:
             ```
 
             安装后 LuCI 菜单: **服务 -> AdGuard Home**
-          files: AdGuardHome_*.run
+          files: makeself/AdGuardHome_*.run
