@@ -87,7 +87,8 @@ jobs:
           fi
           # install luci-app-adguardhome IPK
           echo "Installing luci-app-adguardhome ipk"
-          if ! opkg install *.ipk 2>/dev/null; then
+          opkg install --force-depends *.ipk
+          if [ $? -ne 0 ]; then
             echo "Package install failed"
             exit 1
           fi
