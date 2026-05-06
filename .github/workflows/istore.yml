@@ -45,29 +45,139 @@ jobs:
 
       - name: Create release notes
         run: |
-          cat > release_notes.md << EOF
+          cat > release_notes.md << 'ENDOFFILE'
           ## iStore - OpenWrt 应用商店
           
           一个开源且标准的 OpenWRT 软件中心实现，纯脚本实现，只依赖 OpenWrt 标准组件。
           
-          ### 版本信息
-          - 版本: ${{ env.VERSION }}
-          - 更新日期: ${{ env.COMMIT_DATE }}
-          - 源码仓库: https://github.com/linkease/istore
+          ---
           
-          ### 支持平台
-          - x86_64
-          - aarch64 (arm64)
+          ## 系统要求
           
-          ### 安装方式
-          \`\`\`bash
+          - **OpenWrt 版本**：21.02 及以上（23.05 推荐）
+          - **支持架构**：x86_64、aarch64 (arm64)
+          - **依赖组件**：OpenWrt 21.x 需预先安装 `luci-compat`
+          - **磁盘空间**：至少 50MB 可用空间
+          
+          ---
+          
+          ## 安装步骤
+          
+          ### 方法一：通过 SSH 安装（推荐）
+          
+          **1. 连接路由器**
+          ```bash
+          ssh root@192.168.1.1
+          ```
+          
+          **2. 上传安装包**
+          
+          方式 A - 使用 SCP：
+          ```bash
+          scp istore-reinstall.run root@192.168.1.1:/tmp/
+          ```
+          
+          方式 B - 使用 WinSCP/FileZilla：
+          - 连接路由器（协议：SCP，端口：22）
+          - 将 `istore-reinstall.run` 上传到 `/tmp/` 目录
+          
+          方式 C - 使用 LuCI 界面：
+          - 登录 LuCI 管理界面
+          - 进入 **系统 -> 软件包 -> 上传软件包**
+          - 上传 `istore-reinstall.run` 到 `/tmp/`
+          
+          **3. 执行安装**
+          ```bash
+          cd /tmp
           chmod +x istore-reinstall.run
           ./istore-reinstall.run
-          \`\`\`
+          ```
           
-          ### 安装后使用
-          在 LuCI 管理界面的 **服务 -> iStore** 菜单中访问应用商店。
-          EOF
+          **4. 等待安装完成**
+          - 安装过程会自动下载并安装 iStore 及其依赖组件
+          - 看到 "iStore installed successfully" 或类似提示表示安装成功
+          
+          **5. 刷新 LuCI 界面**
+          - 退出并重新登录 LuCI
+          - 在 **服务** 菜单下找到 **iStore** 入口
+          
+          ---
+          
+          ### 方法二：通过 LuCI 界面安装
+          
+          1. 登录 LuCI 管理界面
+          2. 进入 **系统 -> 软件包**
+          3. 点击 **上传软件包** 按钮
+          4. 选择 `istore-reinstall.run` 文件并上传
+          5. 上传完成后，通过 SSH 执行安装（见方法一步骤 3）
+          
+          ---
+          
+          ## 验证安装
+          
+          **检查服务状态**：
+          ```bash
+          /etc/init.d/istore status
+          ```
+          
+          **检查进程**：
+          ```bash
+          ps | grep istore
+          ```
+          
+          **访问界面**：
+          - 浏览器打开 `http://192.168.1.1/cgi-bin/luci/admin/services/istore`
+          - 或在 LuCI 菜单：**服务 -> iStore**
+          
+          ---
+          
+          ## 常见问题
+          
+          ### Q1: 安装后 LuCI 界面没有 iStore 菜单？
+          **A**: 这是 LuCI 缓存问题，请：
+          1. 退出 LuCI 登录
+          2. 清除浏览器缓存
+          3. 重新登录即可
+          
+          ### Q2: 提示缺少 luci-compat 依赖？
+          **A**: OpenWrt 21.x 需要安装兼容层：
+          ```bash
+          opkg update
+          opkg install luci-compat
+          ```
+          
+          ### Q3: 安装过程中出现错误？
+          **A**: 检查以下几点：
+          - 确保网络连接正常（需要下载依赖包）
+          - 确保磁盘空间充足
+          - 查看错误日志：`dmesg | tail -20`
+          
+          ### Q4: 如何卸载 iStore？
+          **A**: 
+          ```bash
+          opkg remove luci-app-store
+          opkg remove luci-lib-taskd
+          opkg remove luci-lib-xterm
+          ```
+          
+          ---
+          
+          ## 使用指南
+          
+          安装完成后：
+          1. 打开 iStore 应用商店界面
+          2. 浏览分类查找需要的插件
+          3. 点击 **安装** 按钮一键安装插件
+          4. 插件会自动处理依赖关系
+          5. 安装完成后在对应菜单中使用
+          
+          ---
+          
+          ## 相关链接
+          
+          - 源码仓库：https://github.com/linkease/istore
+          - 问题反馈：https://github.com/linkease/istore/issues
+          ENDOFFILE
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
