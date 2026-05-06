@@ -1,0 +1,88 @@
+name: Build iStore .run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest release tag
+        id: fetch_latest_tag
+        run: |
+          latest_tag=$(curl -sk https://api.github.com/repos/linkease/istore/releases/latest | jq -r '.tag_name')
+          VERSION="${latest_tag#v}"
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Clone makeself repository
+        run: git clone https://github.com/megastep/makeself.git
+
+      - name: Download iStore IPK packages
+        run: |
+          echo "Downloading iStore IPK packages for ${{ env.LATEST_TAG }}..."
+          curl -sk "https://api.github.com/repos/linkease/istore/releases/latest" > releases.txt
+
+          mkdir -p istore_x86_64 istore_aarch64_generic
+
+          download_file() {
+            local url=$1
+            local output_dir=$2
+            [ -z "$url" ] && return
+            local filename=$(basename "$url")
+            echo "Downloading $filename to $output_dir..."
+            curl --connect-timeout 30 -m 600 -kLo "$output_dir/$filename" "$url"
+          }
+
+          # 提取 luci-app-store 相关包
+          store_all=$(grep "browser_download_url" releases.txt | grep "luci-app-store_.*_all.ipk" | head -1 | awk -F '"' '{print $4}')
+          taskd_all=$(grep "browser_download_url" releases.txt | grep "luci-lib-taskd_.*_all.ipk" | head -1 | awk -F '"' '{print $4}')
+          xterm_all=$(grep "browser_download_url" releases.txt | grep "luci-lib-xterm_.*_all.ipk" | head -1 | awk -F '"' '{print $4}')
+
+          # 并行下载
+          download_file "$store_all" "istore_x86_64" &
+          download_file "$store_all" "istore_aarch64_generic" &
+          download_file "$taskd_all" "istore_x86_64" &
+          download_file "$taskd_all" "istore_aarch64_generic" &
+          download_file "$xterm_all" "istore_x86_64" &
+          download_file "$xterm_all" "istore_aarch64_generic" &
+          wait
+
+          echo "IPK files:"
+          ls -la istore_x86_64/*.ipk
+          ls -la istore_aarch64_generic/*.ipk
+
+          echo "Download completed."
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > istore_x86_64/install.sh
+          #!/bin/sh
+          opkg update
+          opkg install --force-depends *.ipk
+          echo "iStore installed."
+          echo "Access iStore from LuCI menu: Services -> iStore"
+          EOF
+          chmod +x istore_x86_64/install.sh
+          cp istore_x86_64/install.sh istore_aarch64_generic/install.sh
+
+      - name: Create self-extracting packages
+        run: |
+          mv istore_x86_64 makeself/
+          mv istore_aarch64_generic makeself/
+          cd makeself
+          ./makeself.sh istore_x86_64/ istore_${{ env.VERSION }}_x86_64.run "iStore Installer x86_64" ./install.sh
+          ./makeself.sh istore_aarch64_generic/ istore_${{ env.VERSION }}_aarch64.run "iStore Installer aarch64" ./install.sh
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: istore-${{ env.VERSION }}
+          name: "iStore ${{ env.LATEST_TAG }}"
+          files: makeself/istore_*.run
