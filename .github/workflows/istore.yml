@@ -13,76 +13,66 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch latest release tag
-        id: fetch_latest_tag
+      - name: Fetch latest version info
+        id: fetch_version
         run: |
-          latest_tag=$(curl -sk https://api.github.com/repos/linkease/istore/releases/latest | jq -r '.tag_name')
-          VERSION="${latest_tag#v}"
-          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+          echo "获取 iStore 最新版本信息..."
+          
+          # 从 iStore 仓库获取最新 commit 作为版本标识
+          LATEST_COMMIT=$(curl -sk "https://api.github.com/repos/linkease/istore/commits/main" | jq -r '.sha' | cut -c1-7)
+          COMMIT_DATE=$(curl -sk "https://api.github.com/repos/linkease/istore/commits/main" | jq -r '.commit.committer.date' | cut -dT -f1)
+          
+          VERSION="latest-${LATEST_COMMIT}"
+          
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
+          echo "LATEST_COMMIT=$LATEST_COMMIT" >> $GITHUB_OUTPUT
+          
+          echo "最新版本: $VERSION"
+          echo "更新日期: $COMMIT_DATE"
 
-      - name: Clone makeself repository
-        run: git clone https://github.com/megastep/makeself.git
-
-      - name: Download iStore IPK packages
+      - name: Download iStore installer
         run: |
-          echo "Downloading iStore IPK packages for ${{ env.LATEST_TAG }}..."
-          curl -sk "https://api.github.com/repos/linkease/istore/releases/latest" > releases.txt
+          mkdir -p istore_output
+          
+          echo "下载 iStore 官方安装包..."
+          curl -skL "https://github.com/linkease/openwrt-app-actions/raw/main/applications/luci-app-systools/root/usr/share/systools/istore-reinstall.run" \
+            -o "istore_output/istore-reinstall.run"
+          
+          echo "文件信息:"
+          ls -lh istore_output/
+          file istore_output/istore-reinstall.run
 
-          mkdir -p istore_x86_64 istore_aarch64_generic
-
-          download_file() {
-            local url=$1
-            local output_dir=$2
-            [ -z "$url" ] && return
-            local filename=$(basename "$url")
-            echo "Downloading $filename to $output_dir..."
-            curl --connect-timeout 30 -m 600 -kLo "$output_dir/$filename" "$url"
-          }
-
-          # 提取 luci-app-store 相关包
-          store_all=$(grep "browser_download_url" releases.txt | grep "luci-app-store_.*_all.ipk" | head -1 | awk -F '"' '{print $4}')
-          taskd_all=$(grep "browser_download_url" releases.txt | grep "luci-lib-taskd_.*_all.ipk" | head -1 | awk -F '"' '{print $4}')
-          xterm_all=$(grep "browser_download_url" releases.txt | grep "luci-lib-xterm_.*_all.ipk" | head -1 | awk -F '"' '{print $4}')
-
-          # 并行下载
-          download_file "$store_all" "istore_x86_64" &
-          download_file "$store_all" "istore_aarch64_generic" &
-          download_file "$taskd_all" "istore_x86_64" &
-          download_file "$taskd_all" "istore_aarch64_generic" &
-          download_file "$xterm_all" "istore_x86_64" &
-          download_file "$xterm_all" "istore_aarch64_generic" &
-          wait
-
-          echo "IPK files:"
-          ls -la istore_x86_64/*.ipk
-          ls -la istore_aarch64_generic/*.ipk
-
-          echo "Download completed."
-
-      - name: Create install.sh
+      - name: Create release notes
         run: |
-          cat << 'EOF' > istore_x86_64/install.sh
-          #!/bin/sh
-          opkg update
-          opkg install --force-depends *.ipk
-          echo "iStore installed."
-          echo "Access iStore from LuCI menu: Services -> iStore"
+          cat > release_notes.md << EOF
+          ## iStore - OpenWrt 应用商店
+          
+          一个开源且标准的 OpenWRT 软件中心实现，纯脚本实现，只依赖 OpenWrt 标准组件。
+          
+          ### 版本信息
+          - 版本: ${{ env.VERSION }}
+          - 更新日期: ${{ env.COMMIT_DATE }}
+          - 源码仓库: https://github.com/linkease/istore
+          
+          ### 支持平台
+          - x86_64
+          - aarch64 (arm64)
+          
+          ### 安装方式
+          \`\`\`bash
+          chmod +x istore-reinstall.run
+          ./istore-reinstall.run
+          \`\`\`
+          
+          ### 安装后使用
+          在 LuCI 管理界面的 **服务 -> iStore** 菜单中访问应用商店。
           EOF
-          chmod +x istore_x86_64/install.sh
-          cp istore_x86_64/install.sh istore_aarch64_generic/install.sh
-
-      - name: Create self-extracting packages
-        run: |
-          mv istore_x86_64 makeself/
-          mv istore_aarch64_generic makeself/
-          cd makeself
-          ./makeself.sh istore_x86_64/ istore_${{ env.VERSION }}_x86_64.run "iStore Installer x86_64" ./install.sh
-          ./makeself.sh istore_aarch64_generic/ istore_${{ env.VERSION }}_aarch64.run "iStore Installer aarch64" ./install.sh
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: istore-${{ env.VERSION }}
-          name: "iStore ${{ env.LATEST_TAG }}"
-          files: makeself/istore_*.run
+          name: "iStore ${{ env.VERSION }}"
+          body_path: release_notes.md
+          files: istore_output/istore-reinstall.run
