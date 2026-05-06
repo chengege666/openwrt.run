@@ -23,21 +23,9 @@ jobs:
       - name: Clone makeself repository
         run: git clone https://github.com/megastep/makeself.git
 
-      - name: Download AdGuardHome binaries
+      - name: Setup directories
         run: |
-          echo "下载 AdGuardHome ${{ env.LATEST_TAG }} 各架构二进制..."
-          curl -LO "https://github.com/AdguardTeam/AdGuardHome/releases/download/${{ env.LATEST_TAG }}/AdGuardHome_linux_amd64.tar.gz"
-          tar --one-top-level=AdGuardHome_x86_64 -xzf AdGuardHome_linux_amd64.tar.gz
-          rm AdGuardHome_linux_amd64.tar.gz
-
-          curl -LO "https://github.com/AdguardTeam/AdGuardHome/releases/download/${{ env.LATEST_TAG }}/AdGuardHome_linux_arm64.tar.gz"
-          tar --one-top-level=AdGuardHome_aarch64 -xzf AdGuardHome_linux_arm64.tar.gz
-          rm AdGuardHome_linux_arm64.tar.gz
-
-          echo "x86_64 文件:"
-          ls AdGuardHome_x86_64
-          echo "aarch64 文件:"
-          ls AdGuardHome_aarch64
+          mkdir -p AdGuardHome_x86_64 AdGuardHome_aarch64
 
       - name: Download luci-app-adguardhome IPK from GitHub Releases
         run: |
@@ -52,17 +40,12 @@ jobs:
           curl -L --connect-timeout 30 -m 600 -kLo "AdGuardHome_x86_64/luci-app-adguardhome_all.ipk" "$LUCI_URL"
           cp "AdGuardHome_x86_64/luci-app-adguardhome_all.ipk" "AdGuardHome_aarch64/luci-app-adguardhome_all.ipk"
 
-          echo "文件信息:"
-          ls -lh AdGuardHome_x86_64/luci-app-adguardhome_all.ipk
+          file AdGuardHome_x86_64/luci-app-adguardhome_all.ipk
 
       - name: Create install.sh scripts
         run: |
           cat << 'EOF' > AdGuardHome_x86_64/install.sh
           #!/bin/sh
-          echo "===> 更新 AdGuardHome 核心"
-          cp AdGuardHome/AdGuardHome /usr/bin/AdGuardHome
-          chmod +x /usr/bin/AdGuardHome
-
           echo "===> 安装 luci-app-adguardhome"
           opkg update
           opkg install --force-depends luci-app-adguardhome_all.ipk
@@ -77,9 +60,12 @@ jobs:
           echo "  安装完成！"
           echo ""
           echo "  LuCI 菜单: 服务 -> AdGuard Home"
-          echo "  Web 界面: http://$(uci get network.lan.ipaddr 2>/dev/null || hostname -i):3000"
           echo ""
-          echo "  首次访问请完成初始化设置。"
+          echo "  核心升级链接（自行下载更新）:"
+          echo "  x86_64:"
+          echo "    https://github.com/AdguardTeam/AdGuardHome/releases/download/${Cloud_Version}/AdGuardHome_linux_amd64.tar.gz"
+          echo "  aarch64:"
+          echo "    https://github.com/AdguardTeam/AdGuardHome/releases/download/${Cloud_Version}/AdGuardHome_linux_arm64.tar.gz"
           echo "============================================"
           EOF
 
@@ -94,36 +80,45 @@ jobs:
       - name: Create self-extracting packages
         run: |
           cd makeself
-          ./makeself.sh AdGuardHome_x86_64/ AdGuardHome_${{ env.LATEST_TAG }}_x86_64.run \
-            "AdGuardHome ${{ env.LATEST_TAG }} Installer x86_64" ./install.sh
-          ./makeself.sh AdGuardHome_aarch64/ AdGuardHome_${{ env.LATEST_TAG }}_aarch64.run \
-            "AdGuardHome ${{ env.LATEST_TAG }} Installer aarch64" ./install.sh
+          ./makeself.sh AdGuardHome_x86_64/ AdGuardHome_LuCI_${{ env.LATEST_TAG }}_x86_64.run \
+            "AdGuardHome LuCI Installer x86_64" ./install.sh
+          ./makeself.sh AdGuardHome_aarch64/ AdGuardHome_LuCI_${{ env.LATEST_TAG }}_aarch64.run \
+            "AdGuardHome LuCI Installer aarch64" ./install.sh
 
       - name: Check file sizes
-        run: ls -lh makeself/AdGuardHome_*.run
+        run: ls -lh makeself/AdGuardHome_LuCI_*.run
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: AdGuardHome_${{ env.LATEST_TAG }}
-          name: "AdGuardHome-${{ env.LATEST_TAG }}"
+          tag_name: AdGuardHome_LuCI_${{ env.LATEST_TAG }}
+          name: "AdGuardHome LuCI-${{ env.LATEST_TAG }}"
           body: |
-            ## AdGuardHome ${{ env.LATEST_TAG }}
+            ## AdGuardHome LuCI 界面 (${{ env.LATEST_TAG }})
 
-            包含:
-            - **AdGuardHome** ${{ env.LATEST_TAG }} (DNS 广告过滤核心)
-            - **luci-app-adguardhome** (LuCI 界面, 来自 rufengsuixing)
-            - 来源: rufengsuixing/luci-app-adguardhome
-
-            支持架构: x86_64 / aarch64 (arm64)
+            仅包含 **luci-app-adguardhome**（LuCI 管理界面），不包含 AdGuardHome 核心。
 
             ### 安装方式
 
             ```bash
             cd /tmp
-            chmod +x AdGuardHome_*.run
-            ./AdGuardHome_*.run
+            chmod +x AdGuardHome_LuCI_*.run
+            ./AdGuardHome_LuCI_*.run
             ```
 
-            安装后 LuCI 菜单: **服务 -> AdGuard Home**
-          files: makeself/AdGuardHome_*.run
+            ### 核心升级
+
+            安装后请自行下载对应架构的核心：
+
+            **x86_64:**
+            ```
+            https://github.com/AdguardTeam/AdGuardHome/releases/download/${Cloud_Version}/AdGuardHome_linux_amd64.tar.gz
+            ```
+
+            **aarch64:**
+            ```
+            https://github.com/AdguardTeam/AdGuardHome/releases/download/${Cloud_Version}/AdGuardHome_linux_arm64.tar.gz
+            ```
+
+            > `${Cloud_Version}` 替换为版本号，例如 `v0.107.74`
+          files: makeself/AdGuardHome_LuCI_*.run
