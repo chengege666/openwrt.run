@@ -20,39 +20,39 @@ jobs:
 
       - name: Download Luci App
         run: |
-          echo "正在自动获取最新 luci-app-adguardhome ipk..."
           LATEST_IPK_URL=$(curl -s https://api.github.com/repos/rufengsuixing/luci-app-adguardhome/releases/latest | jq -r '.assets[] | select(.name | endswith("all.ipk")) | .browser_download_url' | head -n 1)
-
-          if [ -z "$LATEST_IPK_URL" ]; then
-            echo "错误：未找到有效的 .ipk 文件！"
-            exit 1
-          fi
+          if [ -z "$LATEST_IPK_URL" ]; then exit 1; fi
           wget "$LATEST_IPK_URL" -P adg-x86_64/
-          echo "下载成功: $LATEST_IPK_URL"
 
       - name: Create install.sh
         run: |
           cat << 'EOF' > adg-x86_64/install.sh
           #!/bin/sh
-          echo "===> 正在安装主程序与中文语言包..."
+          echo "===> 正在安装插件..."
           opkg install --force-depends *.ipk
+          opkg update && opkg install wget-ssl jq
 
-          echo "===> 安装必要工具..."
-          opkg update
-          opkg install wget-ssl
+          echo "===> 正在动态配置核心更新链接..."
+          # 获取 AdGuardHome 最新版本号
+          VERSION=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
+          
+          # 定义更新链接模板
+          # 注意：为了让插件能识别，我们将其设置为唯一选项
+          TARGET_URL="https://github.com/AdguardTeam/AdGuardHome/releases/download/${VERSION}/AdGuardHome_linux_amd64.tar.gz"
 
-          echo "===> 正在配置核心更新链接..."
-          # 确保配置存在，使用 sed 直接修改配置文件以保证字段名匹配
-          # 注意：请在路由器上验证字段名是否为 update_url，若不是，请手动调整下方变量名
-          if [ -f /etc/config/AdGuardHome ]; then
-            uci set AdGuardHome.@adguardhome[0].update_url='https://github.com/AdguardTeam/AdGuardHome/releases/download/${Cloud_Version}/AdGuardHome_linux_${Arch}.tar.gz'
-            uci commit AdGuardHome
-            echo "核心更新链接已自动配置为最新模板。"
-          else
-            echo "警告：未找到 /etc/config/AdGuardHome，无法预设更新链接。"
-          fi
-
-          echo "===> 安装完成！请在 Web 界面进行配置。"
+          # 针对该插件的 UCI 逻辑，必须使用 uci add_list 或者直接 set
+          # 先清理旧的 update_url 设置
+          uci delete AdGuardHome.@adguardhome[0].update_url 2>/dev/null
+          
+          # 写入新的下载链接
+          uci set AdGuardHome.@adguardhome[0].update_url="$TARGET_URL"
+          
+          # 提交更改
+          uci commit AdGuardHome
+          
+          # 重启服务以应用配置
+          /etc/init.d/AdGuardHome restart
+          echo "核心更新链接已配置为: $TARGET_URL"
           EOF
           chmod +x adg-x86_64/install.sh
 
@@ -67,7 +67,7 @@ jobs:
           name: "AdGuardHome Web 界面离线安装包"
           files: AdGuardHome-luci-x86_64.run
           body: |
-            ### AdGuardHome 界面离线包
-            - 仅包含 luci-app-adguardhome 最新版
-            - 自动配置核心更新链接模板
-            - 使用方式：上传到 /tmp，执行 `chmod +x *.run && ./*.run`
+            ### AdGuardHome 离线包
+            - 自动获取 AdGuardHome 最新版本号并配置
+            - 自动预设更新链接
+            - 安装完成执行后，请在 Web 界面点击“更新核心”即可下载最新版
