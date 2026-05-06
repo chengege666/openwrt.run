@@ -1,8 +1,3 @@
-#=================================================
-# https://github.com/nikkinikki-org/OpenWrt-nikki
-# Description: Build Nikki .run files using GitHub Actions
-# Lisence: MIT
-#=================================================
 name: Make Nikki run files
 
 on:
