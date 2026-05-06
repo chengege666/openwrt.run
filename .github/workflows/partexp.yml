@@ -1,4 +1,4 @@
-name: Build Partexp .run
+name: Build Partexp（分区扩容） .run
 
 on:
   workflow_dispatch:
