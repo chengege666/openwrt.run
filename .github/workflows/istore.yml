@@ -72,7 +72,7 @@ jobs:
           
           **2. 上传安装包**
           
-          方式 A - 使用 SCP：
+          方式 A - 使用 SCP（推荐）：
           ```bash
           scp istore-reinstall.run root@192.168.1.1:/tmp/
           ```
@@ -81,10 +81,7 @@ jobs:
           - 连接路由器（协议：SCP，端口：22）
           - 将 `istore-reinstall.run` 上传到 `/tmp/` 目录
           
-          方式 C - 使用 LuCI 界面：
-          - 登录 LuCI 管理界面
-          - 进入 **系统 -> 软件包 -> 上传软件包**
-          - 上传 `istore-reinstall.run` 到 `/tmp/`
+          **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 IPK 包！
           
           **3. 执行安装**
           ```bash
@@ -100,16 +97,6 @@ jobs:
           **5. 刷新 LuCI 界面**
           - 退出并重新登录 LuCI
           - 在 **服务** 菜单下找到 **iStore** 入口
-          
-          ---
-          
-          ### 方法二：通过 LuCI 界面安装
-          
-          1. 登录 LuCI 管理界面
-          2. 进入 **系统 -> 软件包**
-          3. 点击 **上传软件包** 按钮
-          4. 选择 `istore-reinstall.run` 文件并上传
-          5. 上传完成后，通过 SSH 执行安装（见方法一步骤 3）
           
           ---
           
