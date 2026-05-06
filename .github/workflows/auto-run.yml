@@ -131,20 +131,24 @@ jobs:
 
           for workflow_name in $(echo "${{ steps.trigger.outputs.triggered_list }}" | tr ',' ' '); do
             echo "收集 $workflow_name 的产物..."
-            LATEST_RELEASE=$(gh release list --repo "${{ github.repository }}" --limit 10 --json tagName,name,assets --jq ".[] | select(.tagName | test(\"$workflow_name\"; \"i\"))" | head -1)
+            
+            RELEASE_LIST=$(gh release list --repo "${{ github.repository }}" --limit 20 --json tagName)
+            MATCHED_TAG=$(echo "$RELEASE_LIST" | jq -r ".[] | select(.tagName | test(\"$workflow_name\"; \"i\")) | .tagName" | head -1)
 
-            if [ -z "$LATEST_RELEASE" ]; then
+            if [ -z "$MATCHED_TAG" ]; then
               echo "  未找到 $workflow_name 的 Release"
               continue
             fi
 
-            TAG_NAME=$(echo "$LATEST_RELEASE" | jq -r '.tagName')
-            ASSETS=$(echo "$LATEST_RELEASE" | jq -r '.assets[].browser_download_url')
-
-            for ASSET_URL in $ASSETS; do
-              FILENAME=$(basename "$ASSET_URL")
-              echo "  下载: $FILENAME"
-              gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern "$FILENAME" --dir bundle_output --clobber
+            echo "  找到 Release: $MATCHED_TAG"
+            
+            ASSET_LIST=$(gh release view "$MATCHED_TAG" --repo "${{ github.repository }}" --json assets --jq ".assets[].name")
+            
+            for ASSET_NAME in $ASSET_LIST; do
+              if [[ "$ASSET_NAME" == *.run ]]; then
+                echo "  下载: $ASSET_NAME"
+                gh release download "$MATCHED_TAG" --repo "${{ github.repository }}" --pattern "$ASSET_NAME" --dir bundle_output --clobber
+              fi
             done
           done
 
