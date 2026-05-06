@@ -12,7 +12,6 @@ jobs:
     outputs:
       adg_version: ${{ steps.version.outputs.adg_version }}
       adg_tag: ${{ steps.version.outputs.adg_tag }}
-      luci_version: ${{ steps.version.outputs.luci_version }}
     steps:
       - name: Fetch latest versions
         id: version
@@ -21,13 +20,7 @@ jobs:
           ADG_VERSION="${ADG_TAG#v}"
           echo "adg_tag=$ADG_TAG" >> $GITHUB_OUTPUT
           echo "adg_version=$ADG_VERSION" >> $GITHUB_OUTPUT
-
-          LUCI_TAG=$(curl -sk https://api.github.com/repos/xptsp/luci-app-adguardhome/releases/latest | jq -r '.tag_name')
-          LUCI_VERSION="${LUCI_TAG#v}"
-          echo "luci_version=$LUCI_VERSION" >> $GITHUB_OUTPUT
-
           echo "AdGuardHome: $ADG_TAG"
-          echo "LuCI: $LUCI_VERSION"
 
   build:
     needs: get-version
@@ -51,18 +44,18 @@ jobs:
         run: |
           mkdir -p pkg
 
-          echo "下载 AdGuardHome 二进制 (${{ matrix.arch.binary_suffix }})..."
-          curl -sk "https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest" > adg_releases.txt
-          ADG_URL=$(grep "browser_download_url" adg_releases.txt | grep "AdGuardHome_${{ matrix.arch.binary_suffix }}.tar.gz" | awk -F '"' '{print $4}')
+          ADG_RELEASES=$(curl -sk "https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest")
+          ADG_URL=$(echo "$ADG_RELEASES" | jq -r '.assets[] | select(.name | test("AdGuardHome_${{ matrix.arch.binary_suffix }}.tar.gz")) | .browser_download_url' | head -1)
+          echo "下载 AdGuardHome 二进制: $ADG_URL"
           curl -L --connect-timeout 30 -m 600 -kLo "pkg/AdGuardHome.tar.gz" "$ADG_URL"
 
-          echo "下载 LuCI 界面..."
-          curl -sk "https://api.github.com/repos/xptsp/luci-app-adguardhome/releases/latest" > luci_releases.txt
-          LUCI_URL=$(grep "browser_download_url" luci_releases.txt | grep "luci-app-adguardhome_.*_all.ipk" | awk -F '"' '{print $4}')
-          LUCI_ZH_URL=$(grep "browser_download_url" luci_releases.txt | grep "luci-i18n-adguardhome-zh-cn_.*_all.ipk" | awk -F '"' '{print $4}')
+          LUCI_RELEASES=$(curl -sk "https://api.github.com/repos/xptsp/luci-app-adguardhome/releases/latest")
+          LUCI_URL=$(echo "$LUCI_RELEASES" | jq -r '.assets[] | select(.name | test("luci-app-adguardhome_.*_all.ipk")) | .browser_download_url' | head -1)
+          LUCI_ZH_URL=$(echo "$LUCI_RELEASES" | jq -r '.assets[] | select(.name | test("luci-i18n-adguardhome-zh-cn_.*_all.ipk")) | .browser_download_url' | head -1)
 
+          echo "下载 LuCI 界面..."
           curl -L --connect-timeout 30 -m 600 -kLo "pkg/luci-app-adguardhome.ipk" "$LUCI_URL"
-          [ -n "$LUCI_ZH_URL" ] && curl -L --connect-timeout 30 -m 600 -kLo "pkg/luci-i18n-adguardhome-zh-cn.ipk" "$LUCI_ZH_URL"
+          [ -n "$LUCI_ZH_URL" ] && [ "$LUCI_ZH_URL" != "null" ] && curl -L --connect-timeout 30 -m 600 -kLo "pkg/luci-i18n-adguardhome-zh-cn.ipk" "$LUCI_ZH_URL"
 
           echo "解压二进制..."
           cd pkg && tar -xzf AdGuardHome.tar.gz && rm AdGuardHome.tar.gz && cd ..
@@ -74,12 +67,14 @@ jobs:
         run: |
           cat > pkg/install.sh << 'INSTALLEOF'
           #!/bin/sh
+
           echo "===> 安装 AdGuardHome + LuCI 界面"
 
           echo "===> 第一步: 安装 LuCI 界面"
-          opkg update
           opkg install --force-depends luci-app-adguardhome.ipk
-          [ -f luci-i18n-adguardhome-zh-cn.ipk ] && opkg install --force-depends luci-i18n-adguardhome-zh-cn.ipk
+          if [ -f luci-i18n-adguardhome-zh-cn.ipk ]; then
+            opkg install --force-depends luci-i18n-adguardhome-zh-cn.ipk
+          fi
 
           echo "===> 第二步: 安装 AdGuardHome 二进制"
           mkdir -p /usr/bin
@@ -109,6 +104,11 @@ jobs:
           /etc/init.d/AdGuardHome enable
           /etc/init.d/AdGuardHome start 2>/dev/null || true
 
+          echo "===> 第四步: 刷新 LuCI 缓存"
+          rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
+          /etc/init.d/rpcd restart 2>/dev/null || true
+          /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null || true
+
           echo ""
           echo "============================================"
           echo "  安装完成！"
@@ -130,9 +130,46 @@ jobs:
           ./makeself.sh pkg/ AdGuardHome_${{ needs.get-version.outputs.adg_version }}_${{ matrix.arch.label }}.run \
             "AdGuardHome ${{ needs.get-version.outputs.adg_tag }} + LuCI - ${{ matrix.arch.label }}" ./install.sh
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: adguardhome-${{ matrix.arch.label }}
+          path: makeself/AdGuardHome_*.run
+
+  release:
+    needs: [get-version, build]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: adguardhome-*
+          merge-multiple: true
+
+      - name: List files
+        run: ls -lh
+
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: adguardhome-${{ needs.get-version.outputs.adg_version }}
           name: "AdGuardHome ${{ needs.get-version.outputs.adg_tag }} + LuCI"
-          files: makeself/AdGuardHome_*.run
+          body: |
+            ## AdGuardHome ${{ needs.get-version.outputs.adg_tag }} + LuCI 界面
+
+            包含组件:
+            - **AdGuardHome** ${{ needs.get-version.outputs.adg_tag }} (DNS 广告过滤)
+            - **luci-app-adguardhome** (LuCI 管理界面)
+
+            支持架构: x86_64 / aarch64 (arm64)
+
+            ### 安装方式
+
+            ```bash
+            cd /tmp
+            chmod +x AdGuardHome_*.run
+            ./AdGuardHome_*.run
+            ```
+
+            安装后 LuCI 菜单: **服务 -> AdGuard Home**
+          files: AdGuardHome_*.run
