@@ -35,8 +35,8 @@ jobs:
           done
 
           echo ""
-          echo "=== 删除超过 1 小时的已完成工作流 ==="
-          CUTOFF_EPOCH=$(date -u -d '-1 hour' '+%s')
+          echo "=== 删除超过 5 分钟的已完成工作流 ==="
+          CUTOFF_EPOCH=$(date -u -d '-5 minutes' '+%s')
           gh api "repos/$OWNER/$REPO/actions/runs?per_page=100&status=completed" --jq '.workflow_runs[] | select(.updated_at != null) | {id, updated_at}' | \
           jq -c --argjson cutoff "$CUTOFF_EPOCH" 'select((.updated_at | sub("\\.[0-9]+Z$"; "Z") | fromdate) < $cutoff) | .id' | \
           while read id; do
