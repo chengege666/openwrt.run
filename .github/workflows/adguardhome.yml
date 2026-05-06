@@ -1,0 +1,79 @@
+name: Make AdGuardHome run files
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone makeself repository
+        run: git clone https://github.com/megastep/makeself.git
+
+      - name: Create install.sh
+        run: |
+          mkdir -p pkg
+          cat << 'EOF' > pkg/install.sh
+          #!/bin/sh
+          echo "===> 更新软件源..."
+          opkg update
+          if [ $? -ne 0 ]; then
+            echo "update failed"
+            exit 1
+          fi
+
+          echo "===> 安装 luci-app-adguardhome"
+          opkg install luci-app-adguardhome luci-i18n-adguardhome-zh-cn
+
+          echo "===> 刷新 LuCI 缓存"
+          rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
+          /etc/init.d/rpcd restart 2>/dev/null || true
+          /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/nginx restart 2>/dev/null || true
+
+          echo ""
+          echo "============================================"
+          echo "  安装完成！"
+          echo ""
+          echo "  如需更新核心，请自行下载:"
+          echo "  https://github.com/AdguardTeam/AdGuardHome/releases/download/{版本号}/AdGuardHome_linux_{架构}.tar.gz"
+          echo "============================================"
+          EOF
+          chmod +x pkg/install.sh
+
+      - name: Create self-extracting package
+        run: |
+          mv pkg makeself/
+          cd makeself
+          ./makeself.sh pkg/ AdGuardHome_Installer.run \
+            "AdGuardHome LuCI Online Installer" ./install.sh
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: AdGuardHome_Installer
+          name: "AdGuardHome LuCI 在线安装器"
+          body: |
+            ## AdGuardHome LuCI 在线安装器
+
+            此安装器不包含任何 IPK 包，执行时会从路由器已配置的软件源在线安装。
+
+            ### 安装方式
+
+            ```bash
+            cd /tmp
+            chmod +x AdGuardHome_Installer.run
+            ./AdGuardHome_Installer.run
+            ```
+
+            ### 说明
+
+            - 安装 `luci-app-adguardhome` + 中文翻译包
+            - 不包含 AdGuardHome 核心，安装后请自行下载更新核心
+            - 需要路由器能正常连接软件源
+          files: makeself/AdGuardHome_Installer.run
