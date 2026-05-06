@@ -33,6 +33,7 @@ jobs:
         run: |
           echo "开始触发所有工作流..."
           TRIGGERED=""
+          FAILED=""
           for workflow in .github/workflows/*.yml; do
             name=$(basename "$workflow")
             case "$name" in
@@ -42,11 +43,20 @@ jobs:
                 ;;
             esac
             echo "触发工作流: $name"
-            gh workflow run "$name" --repo "${{ github.repository }}"
-            TRIGGERED="${TRIGGERED}${name%.yml},"
+            if gh workflow run "$name" --repo "${{ github.repository }}" 2>/dev/null; then
+              TRIGGERED="${TRIGGERED}${name%.yml},"
+              echo "  ✓ 触发成功"
+            else
+              FAILED="${FAILED}${name%.yml},"
+              echo "  ✗ 触发失败"
+            fi
           done
           echo "triggered_list=${TRIGGERED%,}" >> $GITHUB_OUTPUT
+          echo "failed_list=${FAILED%,}" >> $GITHUB_OUTPUT
           echo "已触发: ${TRIGGERED%,}"
+          if [ -n "$FAILED" ]; then
+            echo "触发失败: ${FAILED%,}"
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -69,6 +79,7 @@ jobs:
             if [ $ELAPSED -ge $MAX_WAIT ]; then
               echo "等待超时 ($MAX_WAIT_MINUTES 分钟)"
               echo "status=timeout" >> $GITHUB_OUTPUT
+              echo "timeout_workflows=${{ steps.trigger.outputs.triggered_list }}" >> $GITHUB_OUTPUT
               exit 0
             fi
 
@@ -129,14 +140,25 @@ jobs:
           mkdir -p bundle_output
           echo "开始收集所有 Release 产物..."
 
+          COLLECTED=""
+          MISSED=""
+
           for workflow_name in $(echo "${{ steps.trigger.outputs.triggered_list }}" | tr ',' ' '); do
             echo "收集 $workflow_name 的产物..."
             
             RELEASE_LIST=$(gh release list --repo "${{ github.repository }}" --limit 20 --json tagName)
-            MATCHED_TAG=$(echo "$RELEASE_LIST" | jq -r ".[] | select(.tagName | test(\"$workflow_name\"; \"i\")) | .tagName" | head -1)
+            
+            MATCHED_TAG=""
+            for tag in $(echo "$RELEASE_LIST" | jq -r '.[].tagName'); do
+              if echo "$tag" | grep -qi "^${workflow_name}"; then
+                MATCHED_TAG="$tag"
+                break
+              fi
+            done
 
             if [ -z "$MATCHED_TAG" ]; then
               echo "  未找到 $workflow_name 的 Release"
+              MISSED="${MISSED}${workflow_name},"
               continue
             fi
 
@@ -144,13 +166,28 @@ jobs:
             
             ASSET_LIST=$(gh release view "$MATCHED_TAG" --repo "${{ github.repository }}" --json assets --jq ".assets[].name")
             
+            FOUND_ASSET=false
             for ASSET_NAME in $ASSET_LIST; do
               if [[ "$ASSET_NAME" == *.run ]]; then
                 echo "  下载: $ASSET_NAME"
-                gh release download "$MATCHED_TAG" --repo "${{ github.repository }}" --pattern "$ASSET_NAME" --dir bundle_output --clobber
+                if gh release download "$MATCHED_TAG" --repo "${{ github.repository }}" --pattern "$ASSET_NAME" --dir bundle_output --clobber 2>/dev/null; then
+                  FOUND_ASSET=true
+                else
+                  echo "  下载失败: $ASSET_NAME"
+                fi
               fi
             done
+
+            if [ "$FOUND_ASSET" = true ]; then
+              COLLECTED="${COLLECTED}${workflow_name},"
+            else
+              echo "  未找到 .run 文件"
+              MISSED="${MISSED}${workflow_name},"
+            fi
           done
+
+          echo "collected_list=${COLLECTED%,}" >> $GITHUB_OUTPUT
+          echo "missed_list=${MISSED%,}" >> $GITHUB_OUTPUT
 
           echo "产物收集完成:"
           ls -lh bundle_output/
@@ -169,18 +206,42 @@ jobs:
           fi
 
           echo "生成 Release 说明..."
-          cat > release_body.md << 'EOF'
+          cat > release_body.md << EOF
           ## OpenWrt 插件合集
 
           本 Release 包含以下插件的离线安装包 (.run)：
 
+          ### 成功收集
           EOF
 
+          for workflow_name in $(echo "${{ steps.collect.outputs.collected_list }}" | tr ',' ' '); do
+            echo "- ✅ $workflow_name" >> release_body.md
+          done
+
+          if [ -n "${{ steps.collect.outputs.missed_list }}" ]; then
+            echo "" >> release_body.md
+            echo "### 未收集" >> release_body.md
+            for workflow_name in $(echo "${{ steps.collect.outputs.missed_list }}" | tr ',' ' '); do
+              echo "- ❌ $workflow_name" >> release_body.md
+            done
+          fi
+
+          if [ -n "${{ steps.trigger.outputs.failed_list }}" ]; then
+            echo "" >> release_body.md
+            echo "### 触发失败" >> release_body.md
+            for workflow_name in $(echo "${{ steps.trigger.outputs.failed_list }}" | tr ',' ' '); do
+              echo "- ⚠️ $workflow_name" >> release_body.md
+            done
+          fi
+
+          echo "" >> release_body.md
+          echo "### 文件列表" >> release_body.md
           for f in *.run; do
-            echo "- $f" >> release_body.md
+            echo "- \`$f\`" >> release_body.md
           done
 
           echo "" >> release_body.md
+          echo "---" >> release_body.md
           echo "构建时间: $(date '+%Y-%m-%d %H:%M:%S')" >> release_body.md
           echo "仓库: ${{ github.repository }}" >> release_body.md
 
