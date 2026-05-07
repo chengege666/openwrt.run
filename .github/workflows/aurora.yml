@@ -1,0 +1,75 @@
+name: Build Aurora（主题） .run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare workspace
+        run: |
+          mkdir -p aurora-build
+          sudo apt-get update && sudo apt-get install -y jq
+          git clone https://github.com/megastep/makeself.git
+
+      - name: Download Aurora Theme
+        run: |
+          echo "正在从 GitHub Releases 获取最新 Aurora 主题..."
+          RELEASE_JSON=$(curl -fsSL --connect-timeout 15 --max-time 30 \
+            https://api.github.com/repos/eamonxg/luci-theme-aurora/releases/latest)
+
+          TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+          echo "tag_name=$TAG_NAME" >> $GITHUB_ENV
+
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "null" ]; then
+            echo "错误：无法获取最新版本信息"
+            exit 1
+          fi
+
+          VERSION="${TAG_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+          IPK_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith("_all.ipk")) | .browser_download_url' | head -1)
+
+          if [ -z "$IPK_URL" ] || [ "$IPK_URL" = "null" ]; then
+            echo "错误：未找到 _all.ipk 格式的发布包"
+            exit 1
+          fi
+
+          echo "版本: $TAG_NAME"
+          echo "下载: $IPK_URL"
+          curl -L --fail --connect-timeout 15 --max-time 60 "$IPK_URL" -o aurora-build/luci-theme-aurora.ipk -#
+          test -s aurora-build/luci-theme-aurora.ipk
+          echo "下载完成"
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > aurora-build/install.sh
+          #!/bin/sh
+          echo "===> 正在安装 Aurora 主题..."
+          opkg install --force-depends *.ipk
+          echo "===> 刷新 LuCI 缓存..."
+          rm -rf /tmp/luci-modulecache /tmp/luci-indexcache
+          echo "===> 安装完成！请在系统界面选择 aurora 主题。"
+          EOF
+          chmod +x aurora-build/install.sh
+
+      - name: Create self-extracting .run package
+        run: |
+          ./makeself/makeself.sh aurora-build/ luci-theme-aurora_${{ env.version }}.run \
+            "Aurora Theme Installer v${{ env.version }}" ./install.sh
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: aurora-${{ env.version }}
+          name: "Aurora Theme ${{ env.tag_name }}"
+          body_path: ${{ github.workspace }}/info/aurora.md
+          files: luci-theme-aurora_*.run
