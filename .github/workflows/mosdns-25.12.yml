@@ -61,6 +61,13 @@ jobs:
           download_file "$geosite" "mosdns_aarch64_cortex-a53" &
           wait
           echo "Download completed."
+          echo ""
+          echo "=== 检查下载文件 ==="
+          echo "x86_64 目录:"
+          ls -la mosdns_x86_64/
+          echo ""
+          echo "aarch64 目录:"
+          ls -la mosdns_aarch64_cortex-a53/
    
       - name: Create install.sh
         run: |
