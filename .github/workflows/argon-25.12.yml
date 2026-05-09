@@ -1,0 +1,228 @@
+name: Build Argon Theme .run (25.12)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest release tag
+        id: fetch_latest_tag
+        run: |
+          latest_tag=$(curl -sk https://api.github.com/repos/jerrykuku/luci-theme-argon/releases/latest | jq -r '.tag_name')
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+
+      - name: Clone makeself repository
+        run: git clone https://github.com/megastep/makeself.git
+
+      - name: Download Argon APK
+        run: |
+          echo "Downloading Argon Theme APK for ${{ env.LATEST_TAG }}..."
+          curl -sk "https://api.github.com/repos/jerrykuku/luci-theme-argon/releases/latest" > releases.txt
+
+          mkdir -p argon_x86_64 argon_aarch64_cortex-a53
+
+          apk_url=$(grep "browser_download_url" releases.txt | grep "\.apk" | head -1 | awk -F '"' '{print $4}')
+
+          echo "下载 APK: $apk_url"
+          curl --connect-timeout 30 -m 600 -kLo "luci-theme-argon.apk" "$apk_url"
+
+          cp luci-theme-argon.apk argon_x86_64/
+          cp luci-theme-argon.apk argon_aarch64_cortex-a53/
+
+          echo ""
+          echo "=== 检查文件 ==="
+          ls -la argon_x86_64/
+          ls -la argon_aarch64_cortex-a53/
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > argon_x86_64/install.sh
+          #!/bin/sh
+          apk update
+          apk add luci-compat
+          apk add -q --force-overwrite --clean-protected --allow-untrusted luci-theme-argon.apk
+          echo "Argon 主题安装完成，请在系统界面选择 argon 主题"
+          EOF
+          chmod +x argon_x86_64/install.sh
+          cp argon_x86_64/install.sh argon_aarch64_cortex-a53/install.sh
+
+      - name: Create self-extracting packages
+        run: |
+          mv argon_x86_64 makeself/
+          mv argon_aarch64_cortex-a53 makeself/
+          cd makeself
+          ./makeself.sh argon_x86_64/ argon_25.12_${{ env.LATEST_TAG }}_x86_64.run "Argon Theme Installer (25.12)" ./install.sh
+          ./makeself.sh argon_aarch64_cortex-a53/ argon_25.12_${{ env.LATEST_TAG }}_aarch64.run "Argon Theme Installer (25.12)" ./install.sh
+
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << 'ENDOFFILE'
+          ## Argon 主题 .run (25.12)
+          
+          一款美观且功能强大的 OpenWrt LuCI 主题，支持亮色/暗色模式切换。
+          
+          ---
+          
+          ## 系统要求
+          
+          - **固件版本**：OpenWrt 或 ImmortalWrt `25.12+`
+          - **支持架构**：`x86_64`、`aarch64_cortex-a53`
+          - **磁盘空间**：至少 5MB 可用空间
+          - **权限要求**：root 权限
+          
+          ---
+          
+          ## 功能特性
+          
+          - **美观界面**：现代化设计风格，支持毛玻璃效果
+          - **亮暗切换**：支持亮色/暗色模式自动切换
+          - **响应式布局**：适配桌面和移动设备
+          - **自定义背景**：支持自定义登录页面背景图片
+          - **主题设置**：丰富的主题配置选项
+          
+          ---
+          
+          ## 安装步骤
+          
+          ### 通过 SSH 安装
+          
+          **1. 上传安装包**
+          
+          方式 A - 使用 SCP（推荐）：
+          ```bash
+          # x86_64 设备
+          scp argon_25.12_*_x86_64.run root@192.168.1.1:/tmp/
+          
+          # aarch64 设备
+          scp argon_25.12_*_aarch64.run root@192.168.1.1:/tmp/
+          ```
+          
+          方式 B - 使用 WinSCP/FileZilla：
+          - 连接路由器（协议：SCP，端口：22）
+          - 将对应的 `.run` 文件上传到 `/tmp/` 目录
+          
+          **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 APK 包！
+          
+          **2. 进入临时目录**
+          ```bash
+          cd /tmp
+          ```
+          
+          **3. 添加执行权限**
+          ```bash
+          # x86_64 设备
+          chmod +x argon_25.12_*_x86_64.run
+          
+          # aarch64 设备
+          chmod +x argon_25.12_*_aarch64.run
+          ```
+          
+          **4. 执行安装**
+          ```bash
+          # x86_64 设备
+          ./argon_25.12_*_x86_64.run
+          
+          # aarch64 设备
+          ./argon_25.12_*_aarch64.run
+          ```
+          
+          **5. 等待安装完成**
+          - 安装过程会自动安装依赖并安装主题
+          - 看到安装成功提示后继续下一步
+          
+          **6. 刷新 LuCI 界面**
+          - 退出并重新登录 LuCI
+          - 在 **系统 -> 系统** 页面选择 argon 主题
+          
+          ---
+          
+          ## 验证安装
+          
+          **检查是否安装成功**：
+          ```bash
+          apk info | grep argon
+          ```
+          
+          **查看主题文件**：
+          ```bash
+          ls /www/luci-static/argon/
+          ```
+          
+          **应用主题**：
+          - 登录 LuCI 管理界面
+          - 进入 **系统 -> 系统** 页面
+          - 在 **主题** 下拉框中选择 `argon`
+          - 点击 **保存并应用**
+          
+          ---
+          
+          ## 主题配置
+          
+          **1. 打开主题设置**
+          - 登录 LuCI 管理界面
+          - 进入 **系统 -> Argon 主题设置**
+          
+          **2. 配置选项**
+          - **主色调**：自定义主题颜色
+          - **背景图片**：上传自定义登录页背景
+          - **毛玻璃效果**：开启/关闭模糊效果
+          - **暗色模式**：设置暗色模式触发条件
+          
+          **3. 保存配置**
+          - 点击 **保存并应用**
+          - 刷新页面查看效果
+          
+          ---
+          
+          ## 常见问题
+          
+          ### Q1: 安装后 LuCI 界面没有变化？
+          **A**: 需要手动切换主题：
+          1. 进入 **系统 -> 系统** 页面
+          2. 在 **主题** 下拉框中选择 `argon`
+          3. 点击 **保存并应用**
+          
+          ### Q2: 如何恢复默认主题？
+          **A**: 
+          1. 进入 **系统 -> 系统** 页面
+          2. 在 **主题** 下拉框中选择 `bootstrap` 或其他主题
+          3. 点击 **保存并应用**
+          
+          ### Q3: 暗色模式不生效？
+          **A**: 检查以下设置：
+          1. 进入 **系统 -> Argon 主题设置**
+          2. 确认暗色模式触发条件设置正确
+          3. 清除浏览器缓存后重试
+          
+          ### Q4: 如何卸载 Argon 主题？
+          **A**: 
+          ```bash
+          apk del luci-theme-argon
+          ```
+          卸载后请切换回其他主题。
+          
+          ---
+          
+          ## 注意事项
+          
+          - **主题切换**：切换主题后建议清除浏览器缓存
+          - **自定义背景**：建议使用 1920x1080 分辨率图片
+          - **兼容性**：部分老旧浏览器可能不支持毛玻璃效果
+          
+          ENDOFFILE
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: argon-25.12-${{ env.LATEST_TAG }}
+          name: "Argon Theme 25.12 ${{ env.LATEST_TAG }}"
+          body_path: release_notes.md
+          files: makeself/argon_25.12_*.run

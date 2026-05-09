@@ -1,0 +1,243 @@
+name: Build SmartDNS .run (25.12)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest release tag
+        id: fetch_latest_tag
+        run: |
+          latest_tag=$(curl -sk https://api.github.com/repos/pymumu/smartdns/releases/latest | jq -r '.tag_name')
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+
+      - name: Clone makeself repository
+        run: git clone https://github.com/megastep/makeself.git
+
+      - name: Download SmartDNS APK packages
+        run: |
+          echo "Downloading SmartDNS APK packages for ${{ env.LATEST_TAG }}..."
+          curl -sk "https://api.github.com/repos/pymumu/smartdns/releases/latest" > releases.txt
+
+          mkdir -p smartdns_x86_64 smartdns_aarch64_cortex-a53
+
+          # 下载 x86_64 的 smartdns 二进制
+          smartdns_x86_64=$(grep "browser_download_url" releases.txt | grep "smartdns-x86_64$" | head -1 | awk -F '"' '{print $4}')
+          echo "下载 x86_64 二进制: $smartdns_x86_64"
+          curl --connect-timeout 30 -m 600 -kLo "smartdns-x86_64" "$smartdns_x86_64"
+
+          # 下载 aarch64 的 smartdns 二进制
+          smartdns_aarch64=$(grep "browser_download_url" releases.txt | grep "smartdns-aarch64$" | head -1 | awk -F '"' '{print $4}')
+          echo "下载 aarch64 二进制: $smartdns_aarch64"
+          curl --connect-timeout 30 -m 600 -kLo "smartdns-aarch64" "$smartdns_aarch64"
+
+          # 下载 luci-app-smartdns（通用 APK）
+          luci_app=$(grep "browser_download_url" releases.txt | grep "luci-app-smartdns\..*\.all-luci-all\.apk" | head -1 | awk -F '"' '{print $4}')
+          echo "下载 luci-app-smartdns: $luci_app"
+          curl --connect-timeout 30 -m 600 -kLo "luci-app-smartdns.apk" "$luci_app"
+
+          # 复制到对应架构目录
+          cp smartdns-x86_64 smartdns_x86_64/
+          cp luci-app-smartdns.apk smartdns_x86_64/
+
+          cp smartdns-aarch64 smartdns_aarch64_cortex-a53/
+          cp luci-app-smartdns.apk smartdns_aarch64_cortex-a53/
+
+          echo ""
+          echo "=== 检查文件 ==="
+          ls -la smartdns_x86_64/
+          ls -la smartdns_aarch64_cortex-a53/
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > smartdns_x86_64/install.sh
+          #!/bin/sh
+          apk update
+          apk add -q --force-overwrite --clean-protected --allow-untrusted luci-app-smartdns.apk
+          cp smartdns-x86_64 /usr/sbin/smartdns
+          chmod +x /usr/sbin/smartdns
+          echo "SmartDNS 安装完成"
+          EOF
+          chmod +x smartdns_x86_64/install.sh
+
+          cat << 'EOF' > smartdns_aarch64_cortex-a53/install.sh
+          #!/bin/sh
+          apk update
+          apk add -q --force-overwrite --clean-protected --allow-untrusted luci-app-smartdns.apk
+          cp smartdns-aarch64 /usr/sbin/smartdns
+          chmod +x /usr/sbin/smartdns
+          echo "SmartDNS 安装完成"
+          EOF
+          chmod +x smartdns_aarch64_cortex-a53/install.sh
+
+      - name: Create self-extracting packages
+        run: |
+          mv smartdns_x86_64 makeself/
+          mv smartdns_aarch64_cortex-a53 makeself/
+          cd makeself
+          ./makeself.sh smartdns_x86_64/ smartdns_25.12_${{ env.LATEST_TAG }}_x86_64.run "SmartDNS Installer (25.12)" ./install.sh
+          ./makeself.sh smartdns_aarch64_cortex-a53/ smartdns_25.12_${{ env.LATEST_TAG }}_aarch64.run "SmartDNS Installer (25.12)" ./install.sh
+
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << 'ENDOFFILE'
+          ## SmartDNS .run (25.12)
+          
+          一款高性能的 DNS 服务器，支持 DNS 分流、加速、广告过滤等功能。
+          
+          ---
+          
+          ## 系统要求
+          
+          - **固件版本**：OpenWrt 或 ImmortalWrt `25.12+`
+          - **支持架构**：`x86_64`、`aarch64_cortex-a53`
+          - **磁盘空间**：至少 20MB 可用空间
+          - **权限要求**：root 权限
+          
+          ---
+          
+          ## 功能特性
+          
+          - **DNS 分流**：支持国内外 DNS 分流查询
+          - **DNS 加速**：多上游 DNS 并发查询，返回最快结果
+          - **广告过滤**：支持广告域名屏蔽
+          - **DNS 缓存**：智能 DNS 缓存加速
+          - **Web 管理**：提供友好的 LuCI 管理界面
+          
+          ---
+          
+          ## 安装步骤
+          
+          ### 通过 SSH 安装
+          
+          **1. 上传安装包**
+          
+          方式 A - 使用 SCP（推荐）：
+          ```bash
+          # x86_64 设备
+          scp smartdns_25.12_*_x86_64.run root@192.168.1.1:/tmp/
+          
+          # aarch64 设备
+          scp smartdns_25.12_*_aarch64.run root@192.168.1.1:/tmp/
+          ```
+          
+          方式 B - 使用 WinSCP/FileZilla：
+          - 连接路由器（协议：SCP，端口：22）
+          - 将对应的 `.run` 文件上传到 `/tmp/` 目录
+          
+          **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 APK 包！
+          
+          **2. 进入临时目录**
+          ```bash
+          cd /tmp
+          ```
+          
+          **3. 添加执行权限**
+          ```bash
+          # x86_64 设备
+          chmod +x smartdns_25.12_*_x86_64.run
+          
+          # aarch64 设备
+          chmod +x smartdns_25.12_*_aarch64.run
+          ```
+          
+          **4. 执行安装**
+          ```bash
+          # x86_64 设备
+          ./smartdns_25.12_*_x86_64.run
+          
+          # aarch64 设备
+          ./smartdns_25.12_*_aarch64.run
+          ```
+          
+          **5. 等待安装完成**
+          - 安装过程会自动安装插件并部署二进制文件
+          - 看到安装成功提示后继续下一步
+          
+          **6. 刷新 LuCI 界面**
+          - 退出并重新登录 LuCI
+          - 在 **服务** 菜单下找到 **SmartDNS** 入口
+          
+          ---
+          
+          ## 验证安装
+          
+          **检查是否安装成功**：
+          ```bash
+          apk info | grep smartdns
+          which smartdns
+          ```
+          
+          **访问界面**：
+          - 在 LuCI 菜单中找到 **服务 -> SmartDNS** 入口
+          
+          ---
+          
+          ## 使用方法
+          
+          **1. 打开 SmartDNS 设置界面**
+          - 登录 LuCI 管理界面
+          - 找到 **服务 -> SmartDNS** 菜单项
+          
+          **2. 基本配置**
+          - **监听端口**：设置 DNS 监听端口（默认 5335）
+          - **上游服务器**：添加 DNS 上游服务器
+          - **分流规则**：配置国内外 DNS 分流规则
+          
+          **3. 高级功能**
+          - **广告过滤**：配置广告域名黑名单
+          - **DNS 缓存**：调整缓存大小和策略
+          - **测速模式**：开启最快 IP 测速
+          
+          **4. 保存并应用**
+          - 点击 **保存并应用**
+          - 重启 SmartDNS 服务使配置生效
+          
+          ---
+          
+          ## 常见问题
+          
+          ### Q1: 安装后 LuCI 界面没有 SmartDNS 菜单？
+          **A**: 这是 LuCI 缓存问题，请：
+          1. 退出 LuCI 登录
+          2. 清除浏览器缓存
+          3. 重新登录即可
+          
+          ### Q2: SmartDNS 服务无法启动？
+          **A**: 检查以下几点：
+          1. 确认端口未被占用：`netstat -tlnp | grep 5335`
+          2. 查看日志：`logread | grep smartdns`
+          3. 检查配置文件：`cat /etc/config/smartdns`
+          
+          ### Q3: 如何卸载 SmartDNS？
+          **A**: 
+          ```bash
+          apk del luci-app-smartdns
+          rm -f /usr/sbin/smartdns
+          ```
+          
+          ---
+          
+          ## 注意事项
+          
+          - **端口冲突**：避免与其他 DNS 服务端口冲突
+          - **上游服务器**：建议使用可靠的上游 DNS 服务器
+          - **资源占用**：DNS 缓存会占用一定内存
+          
+          ENDOFFILE
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: smartdns-25.12-${{ env.LATEST_TAG }}
+          name: "SmartDNS 25.12 ${{ env.LATEST_TAG }}"
+          body_path: release_notes.md
+          files: makeself/smartdns_25.12_*.run

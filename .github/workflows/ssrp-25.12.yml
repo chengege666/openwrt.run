@@ -1,0 +1,216 @@
+name: Build SSR-Plus .run (25.12)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone makeself repository
+        run: git clone https://github.com/megastep/makeself.git
+
+      - name: Download SSR-Plus packages
+        run: |
+          BASE_URL="https://dl.openwrt.ai/packages-25.12"
+          PLATFORMS="x86_64 aarch64_cortex-a53"
+
+          FILE_PREFIXES=("shadowsocks-libev-ss-server" "dns2tcp" "lua-neturl" "chinadns-ng" "dns2socks" "hysteria" "ipt2socks" "microsocks" "mosdns" "naiveproxy" "redsocks2" "shadowsocksr-libev" "shadowsocks-rust" "shadow-tls" "simple-obfs-client" "tcping" "trojan" "tuic-client" "v2ray-plugin" "xray-core" "luci-app-ssr-plus")
+          EXCLUDE_PREFIXES=("luci-app-chinadns-ng" "luci-app-microsocks" "luci-app-mosdns" "luci-app-naiveproxy" "luci-app-redsocks2" "luci-app-shadowsocks")
+
+          mkdir -p makeself
+
+          for platform in $PLATFORMS; do
+            feed_url="${BASE_URL}/${platform}/kiddin9"
+            echo "Preparing platform: $platform"
+            mkdir -p "makeself/ssrp_${platform}/depends"
+
+            index_html="$(wget -qO- --timeout=15 "${feed_url}/")"
+
+            for prefix in "${FILE_PREFIXES[@]}"; do
+              files=$(echo "$index_html" | grep -oE "href=\"${prefix}[^\"]*\"" | sed 's/href="//;s/"//' | sort -V)
+              for file in $files; do
+                skip=false
+                for exclude in "${EXCLUDE_PREFIXES[@]}"; do
+                  if [[ "$file" == ${exclude}* ]]; then
+                    skip=true
+                    break
+                  fi
+                done
+                if $skip; then
+                  echo "Skip: $file"
+                  continue
+                fi
+                echo "Downloading: ${feed_url}/${file}"
+                curl -L --fail --connect-timeout 15 --max-time 60 "${feed_url}/${file}" -o "makeself/ssrp_${platform}/depends/${file}" -#
+              done
+            done
+
+            # 移动主程序到根目录
+            mv makeself/ssrp_${platform}/depends/luci-app-ssr-plus*.ipk makeself/ssrp_${platform}/ 2>/dev/null || true
+
+            echo "=== $platform ==="
+            ls -la makeself/ssrp_${platform}/
+            ls -la makeself/ssrp_${platform}/depends/ | head -20
+          done
+
+          # 提取版本号
+          VERSION=$(ls makeself/ssrp_x86_64/luci-app-ssr-plus*.ipk | head -n 1 | sed -n 's/.*luci-app-ssr-plus_\(.*\)_all\.ipk/\1/p')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > makeself/ssrp_x86_64/install.sh
+          #!/bin/sh
+          set -e
+          echo "===> 正在更新软件源..."
+          opkg update
+          echo "===> 正在安装 SSR-Plus 依赖包..."
+          opkg install depends/*.ipk --force-depends
+          echo "===> 正在安装 SSR-Plus 主程序..."
+          opkg install luci-app-ssr-plus*.ipk --force-depends
+          echo "===> 安装完成！"
+          echo "请在 LuCI 服务菜单中配置 SSR-Plus"
+          EOF
+          chmod +x makeself/ssrp_x86_64/install.sh
+          cp makeself/ssrp_x86_64/install.sh makeself/ssrp_aarch64_cortex-a53/install.sh
+
+      - name: Create self-extracting packages
+        run: |
+          cd makeself
+          ./makeself.sh ssrp_x86_64/ ssrp_25.12_${{ env.VERSION }}_x86_64.run "SSR-Plus Installer (25.12)" ./install.sh
+          ./makeself.sh ssrp_aarch64_cortex-a53/ ssrp_25.12_${{ env.VERSION }}_aarch64.run "SSR-Plus Installer (25.12)" ./install.sh
+
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << 'ENDOFFILE'
+          ## SSR-Plus .run (25.12)
+          
+          一款功能强大的 OpenWrt 代理插件，支持多种代理协议和智能分流。
+          
+          ---
+          
+          ## 系统要求
+          
+          - **固件版本**：OpenWrt 或 ImmortalWrt `25.12+`
+          - **支持架构**：`x86_64`、`aarch64_cortex-a53`
+          - **磁盘空间**：至少 50MB 可用空间
+          - **权限要求**：root 权限
+          
+          ---
+          
+          ## 功能特性
+          
+          - **多协议支持**：支持 Shadowsocks、ShadowsocksR、V2Ray、Trojan、Hysteria、NaiveProxy 等协议
+          - **智能分流**：支持规则分流和全局模式
+          - **DNS 优化**：内置 DNS 优化和去污染功能
+          - **Web 管理**：提供友好的 LuCI 管理界面
+          - **完整依赖**：包含所有必需的依赖包
+          
+          ---
+          
+          ## 安装步骤
+          
+          ### 通过 SSH 安装
+          
+          **1. 上传安装包**
+          
+          方式 A - 使用 SCP（推荐）：
+          ```bash
+          # x86_64 设备
+          scp ssrp_25.12_*_x86_64.run root@192.168.1.1:/tmp/
+          
+          # aarch64 设备
+          scp ssrp_25.12_*_aarch64.run root@192.168.1.1:/tmp/
+          ```
+          
+          方式 B - 使用 WinSCP/FileZilla：
+          - 连接路由器（协议：SCP，端口：22）
+          - 将对应的 `.run` 文件上传到 `/tmp/` 目录
+          
+          **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 IPK 包！
+          
+          **2. 进入临时目录**
+          ```bash
+          cd /tmp
+          ```
+          
+          **3. 添加执行权限**
+          ```bash
+          # x86_64 设备
+          chmod +x ssrp_25.12_*_x86_64.run
+          
+          # aarch64 设备
+          chmod +x ssrp_25.12_*_aarch64.run
+          ```
+          
+          **4. 执行安装**
+          ```bash
+          # x86_64 设备
+          ./ssrp_25.12_*_x86_64.run
+          
+          # aarch64 设备
+          ./ssrp_25.12_*_aarch64.run
+          ```
+          
+          **5. 等待安装完成**
+          - 安装过程会自动安装依赖和主程序
+          - 看到安装成功提示后继续下一步
+          
+          **6. 刷新 LuCI 界面**
+          - 退出并重新登录 LuCI
+          - 在 **服务** 菜单中找到 SSR-Plus 进行配置
+          
+          ---
+          
+          ## 验证安装
+          
+          **检查是否安装成功**：
+          ```bash
+          opkg list-installed | grep ssr-plus
+          ```
+          
+          **查看服务状态**：
+          ```bash
+          /etc/init.d/shadowsocksr status
+          ```
+          
+          ---
+          
+          ## 常见问题
+          
+          ### Q1: 安装后 LuCI 中没有 SSR-Plus 菜单？
+          **A**: 请刷新浏览器缓存或重新登录 LuCI。
+          
+          ### Q2: 如何卸载 SSR-Plus？
+          **A**: 
+          ```bash
+          opkg remove luci-app-ssr-plus
+          ```
+          
+          ### Q3: 如何更新 SSR-Plus？
+          **A**: 下载最新版本的 `.run` 文件，重新执行安装即可。
+          
+          ---
+          
+          ## 注意事项
+          
+          - **依赖完整**：安装包已包含所有必需依赖
+          - **协议选择**：根据服务器支持选择合适协议
+          - **资源占用**：代理工具会占用一定系统资源
+          
+          ENDOFFILE
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ssrp-25.12-${{ env.VERSION }}
+          name: "SSR-Plus 25.12 ${{ env.VERSION }}"
+          body_path: release_notes.md
+          files: makeself/ssrp_25.12_*.run
