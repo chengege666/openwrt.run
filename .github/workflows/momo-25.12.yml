@@ -1,0 +1,242 @@
+name: Build Momo .run (25.12)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Fetch latest release tag
+        id: fetch_latest_tag
+        run: |
+          latest_tag=$(curl -sk https://api.github.com/repos/nikkinikki-org/OpenWrt-momo/releases | grep "tag_name" | head -n 1 | awk -F ":" '{print $2}' | sed 's/\"//g;s/,//;s/ //')
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
+       
+      - name: Clone makeself repository
+        run: git clone https://github.com/megastep/makeself.git
+
+      - name: Download latest momo packages
+        run: |
+          echo "Downloading Momo packages for $LATEST_TAG..."
+          curl -sk --connect-timeout 10 "https://api.github.com/repos/nikkinikki-org/OpenWrt-momo/releases" > releases.txt
+
+          mkdir -p momo_x86_64
+
+          # 下载 25.12 版本的 tar.gz 包
+          tar_x86_64=$(grep "browser_download_url" releases.txt | grep "x86_64-openwrt-25.12.tar.gz" | head -1 | awk -F '"' '{print $4}')
+
+          echo "下载 x86_64 包: $tar_x86_64"
+
+          curl --connect-timeout 30 -m 600 -kLo "momo_x86_64.tar.gz" "$tar_x86_64"
+
+          echo "解压 x86_64 包..."
+          tar -xzf momo_x86_64.tar.gz -C momo_x86_64/
+          rm momo_x86_64.tar.gz
+          find momo_x86_64/ -name "*.apk" -exec mv {} momo_x86_64/ \;
+          find momo_x86_64/ -type d ! -path "momo_x86_64/" -exec rm -rf {} + 2>/dev/null || true
+
+          echo ""
+          echo "=== 检查提取文件 ==="
+          echo "x86_64 目录:"
+          ls -la momo_x86_64/
+   
+      - name: Create install.sh
+        run: |
+          cat << 'EOF' > momo_x86_64/install.sh
+          #!/bin/sh
+          echo "=== Momo 安装开始 ==="
+          echo "当前目录: $(pwd)"
+          echo "目录内容:"
+          ls -la *.apk 2>/dev/null || echo "未找到 .apk 文件"
+          echo ""
+          apk update
+          echo ""
+          echo "开始安装 APK 包..."
+          for f in momo*.apk luci-app-momo*.apk luci-i18n-momo*.apk; do
+            if [ -f "$f" ]; then
+              echo "安装: $f"
+              apk add --allow-untrusted "$f" || echo "安装失败: $f"
+            else
+              echo "跳过: $f (文件不存在)"
+            fi
+          done
+          echo ""
+          echo "=== 安装完成 ==="
+          echo "已安装的包:"
+          apk info | grep momo
+          EOF
+          chmod +x momo_x86_64/install.sh
+
+      - name: Create self-extracting packages
+        run: |
+          mv momo_x86_64 makeself/
+          cd makeself
+          ./makeself.sh momo_x86_64/ momo_25.12_${{ env.LATEST_TAG }}_x86_64.run "Momo Installer (25.12)" ./install.sh
+
+      - name: Create release notes
+        run: |
+          cat > release_notes.md << 'ENDOFFILE'
+          ## Momo .run (25.12)
+          
+          基于 sing-box 的 OpenWrt 透明代理插件，支持访问控制与配置混合。
+          
+          ---
+          
+          ## 系统要求
+          
+          - **固件版本**：OpenWrt 或 ImmortalWrt `25.12+`
+          - **支持架构**：`x86_64`
+          - **磁盘空间**：至少 20MB 可用空间
+          - **权限要求**：root 权限
+          - **依赖要求**：sing-box >= 1.12
+          
+          ---
+          
+          ## 功能特性
+          
+          - **透明代理**：支持 Redirect/TPROXY/TUN 模式
+          - **访问控制**：支持路由器代理和局域网代理的访问控制
+          - **配置文件管理**：支持上传/下载/删除配置文件
+          - **订阅管理**：支持订阅链接管理和自动更新
+          - **定时重启**：支持定时重启服务
+          - **LuCI 界面**：提供友好的 Web 管理界面
+          
+          ---
+          
+          ## 安装步骤
+          
+          ### 通过 SSH 安装
+          
+          **1. 上传安装包**
+          
+          方式 A - 使用 SCP（推荐）：
+          ```bash
+          scp momo_25.12_*_x86_64.run root@192.168.1.1:/tmp/
+          ```
+          
+          方式 B - 使用 WinSCP/FileZilla：
+          - 连接路由器（协议：SCP，端口：22）
+          - 将 `.run` 文件上传到 `/tmp/` 目录
+          
+          **注意**：不要使用 LuCI 的"上传软件包"功能，`.run` 文件不是 APK 包！
+          
+          **2. 进入临时目录**
+          ```bash
+          cd /tmp
+          ```
+          
+          **3. 添加执行权限**
+          ```bash
+          chmod +x momo_25.12_*_x86_64.run
+          ```
+          
+          **4. 执行安装**
+          ```bash
+          ./momo_25.12_*_x86_64.run
+          ```
+          
+          **5. 等待安装完成**
+          - 安装过程会自动解压并安装插件
+          - 看到安装成功提示后继续下一步
+          
+          **6. 刷新 LuCI 界面**
+          - 退出并重新登录 LuCI
+          - 在 **服务** 菜单下找到 **Momo** 入口
+          
+          ---
+          
+          ## 验证安装
+          
+          **检查是否安装成功**：
+          ```bash
+          apk list --installed | grep momo
+          ```
+          
+          **查看服务状态**：
+          ```bash
+          /etc/init.d/momo status
+          ```
+          
+          **访问界面**：
+          - 在 LuCI 菜单中找到 **服务 -> Momo** 入口
+          
+          ---
+          
+          ## 使用方法
+          
+          **1. 打开 Momo 设置界面**
+          - 登录 LuCI 管理界面
+          - 找到 **服务 -> Momo** 菜单项
+          
+          **2. 基本配置**
+          - **启用**：是否启用插件
+          - **选择配置文件**：选择要使用的配置文件
+          - **启动延迟**：开机后首次启动插件前的延迟
+          - **定时重启**：定时重启服务
+          
+          **3. 代理配置**
+          - **TCP/UDP 代理模式**：设置代理模式
+          - **IPv4/IPv6 DNS 劫持**：是否启用 DNS 劫持
+          - **IPv4/IPv6 代理**：是否启用代理
+          - **路由器代理**：启用后路由器本身流量被代理
+          - **局域网代理**：启用后局域网流量被代理
+          
+          **4. 保存并应用**
+          - 点击 **保存并应用**
+          - 重启 Momo 服务使配置生效
+          
+          ---
+          
+          ## 常见问题
+          
+          ### Q1: 安装后 LuCI 界面没有 Momo 菜单？
+          **A**: 这是 LuCI 缓存问题，请：
+          1. 退出 LuCI 登录
+          2. 清除浏览器缓存
+          3. 重新登录即可
+          
+          ### Q2: 如何确认我的设备架构？
+          **A**: 通过 SSH 执行以下命令：
+          ```bash
+          uname -m
+          ```
+          - 输出 `x86_64` 选择 x86_64 版本
+          
+          ### Q3: 代理不生效？
+          **A**: 检查以下几点：
+          1. 确认 Momo 服务已启动
+          2. 检查防火墙规则
+          3. 查看日志：`logread | grep momo`
+          
+          ### Q4: 如何卸载 Momo？
+          **A**: 
+          ```bash
+          apk del luci-app-momo
+          apk del momo
+          ```
+          
+          ---
+          
+          ## 注意事项
+          
+          - **依赖要求**：需要 sing-box >= 1.12
+          - **防火墙**：确保 firewall4 已安装
+          - **内核版本**：需要 Linux Kernel >= 5.13
+          - **配置文件**：建议使用订阅或上传配置文件
+          
+          ENDOFFILE
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: momo-25.12-${{ env.LATEST_TAG }}
+          name: "Momo 25.12 ${{ env.LATEST_TAG }}"
+          body_path: release_notes.md
+          files: makeself/momo_25.12_*.run
