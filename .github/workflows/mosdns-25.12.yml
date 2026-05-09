@@ -66,10 +66,26 @@ jobs:
         run: |
           cat << 'EOF' > mosdns_x86_64/install.sh
           #!/bin/sh
+          echo "=== MosDNS 安装开始 ==="
+          echo "当前目录: $(pwd)"
+          echo "目录内容:"
+          ls -la *.apk 2>/dev/null || echo "未找到 .apk 文件"
+          echo ""
           apk update
+          echo ""
+          echo "开始安装 APK 包..."
           for f in luci-app-mosdns*.apk luci-i18n-mosdns*.apk mosdns*.apk v2dat*.apk v2ray-geoip*.apk v2ray-geosite*.apk; do
-            [ -f "$f" ] && apk add --allow-untrusted "$f"
+            if [ -f "$f" ]; then
+              echo "安装: $f"
+              apk add --allow-untrusted "$f" || echo "安装失败: $f"
+            else
+              echo "跳过: $f (文件不存在)"
+            fi
           done
+          echo ""
+          echo "=== 安装完成 ==="
+          echo "已安装的包:"
+          apk info | grep mosdns
           EOF
           chmod +x mosdns_x86_64/install.sh
           cp mosdns_x86_64/install.sh mosdns_aarch64_cortex-a53/install.sh
