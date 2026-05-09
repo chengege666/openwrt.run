@@ -22,47 +22,33 @@ jobs:
       - name: Clone makeself repository
         run: git clone https://github.com/megastep/makeself.git
 
-      - name: Download latest mosdns apk files
+      - name: Download latest mosdns packages
         run: |
-          echo "Downloading MosDNS APK files for $LATEST_TAG..."
+          echo "Downloading MosDNS packages for $LATEST_TAG..."
           curl -sk --connect-timeout 10 "https://api.github.com/repos/sbwml/luci-app-mosdns/releases" > releases.txt
 
           mkdir -p mosdns_x86_64 mosdns_aarch64_cortex-a53
 
-          download_file() {
-            local url=$1
-            local output_dir=$2
-            [ -z "$url" ] && return
-            local filename=$(basename "$url")
-            echo "Downloading $filename to $output_dir..."
-            curl --connect-timeout 30 -m 600 -kLo "$output_dir/$filename" "$url"
-          }
+          # 下载 25.12 版本的 tar.gz 包
+          tar_x86_64=$(grep "browser_download_url" releases.txt | grep "x86_64-openwrt-25.12.tar.gz" | head -1 | awk -F '"' '{print $4}')
+          tar_aarch64=$(grep "browser_download_url" releases.txt | grep "aarch64_cortex-a53-openwrt-25.12.tar.gz" | head -1 | awk -F '"' '{print $4}')
 
-          mosdns_x86_64=$(grep "browser_download_url" releases.txt | grep "mosdns_5" | grep "x86_64.apk" | head -1 | awk -F '"' '{print $4}')
-          mosdns_aarch64_cortex_a53=$(grep "browser_download_url" releases.txt | grep "mosdns_5" | grep "aarch64_cortex-a53.apk" | head -1 | awk -F '"' '{print $4}')
-          v2dat_x86_64=$(grep "browser_download_url" releases.txt | grep "v2dat_" | grep "x86_64.apk" | head -1 | awk -F '"' '{print $4}')
-          v2dat_aarch64_cortex_a53=$(grep "browser_download_url" releases.txt | grep "v2dat_" | grep "aarch64_cortex-a53.apk" | head -1 | awk -F '"' '{print $4}')
-          luci_app=$(grep "browser_download_url" releases.txt | grep "luci-app-mosdns_" | grep "\.apk" | head -1 | awk -F '"' '{print $4}')
-          luci_i18n=$(grep "browser_download_url" releases.txt | grep "luci-i18n-mosdns-zh-cn" | grep "\.apk" | head -1 | awk -F '"' '{print $4}')
-          geoip=$(grep "browser_download_url" releases.txt | grep "v2ray-geoip" | grep "\.apk" | head -1 | awk -F '"' '{print $4}')
-          geosite=$(grep "browser_download_url" releases.txt | grep "v2ray-geosite" | grep "\.apk" | head -1 | awk -F '"' '{print $4}')
+          echo "下载 x86_64 包: $tar_x86_64"
+          echo "下载 aarch64 包: $tar_aarch64"
 
-          download_file "$mosdns_x86_64" "mosdns_x86_64" &
-          download_file "$mosdns_aarch64_cortex_a53" "mosdns_aarch64_cortex-a53" &
-          download_file "$v2dat_x86_64" "mosdns_x86_64" &
-          download_file "$v2dat_aarch64_cortex_a53" "mosdns_aarch64_cortex-a53" &
-          download_file "$luci_app" "mosdns_x86_64" &
-          download_file "$luci_app" "mosdns_aarch64_cortex-a53" &
-          download_file "$luci_i18n" "mosdns_x86_64" &
-          download_file "$luci_i18n" "mosdns_aarch64_cortex-a53" &
-          download_file "$geoip" "mosdns_x86_64" &
-          download_file "$geoip" "mosdns_aarch64_cortex-a53" &
-          download_file "$geosite" "mosdns_x86_64" &
-          download_file "$geosite" "mosdns_aarch64_cortex-a53" &
-          wait
-          echo "Download completed."
+          curl --connect-timeout 30 -m 600 -kLo "mosdns_x86_64.tar.gz" "$tar_x86_64"
+          curl --connect-timeout 30 -m 600 -kLo "mosdns_aarch64.tar.gz" "$tar_aarch64"
+
+          echo "解压 x86_64 包..."
+          tar -xzf mosdns_x86_64.tar.gz -C mosdns_x86_64/
+          rm mosdns_x86_64.tar.gz
+
+          echo "解压 aarch64 包..."
+          tar -xzf mosdns_aarch64.tar.gz -C mosdns_aarch64_cortex-a53/
+          rm mosdns_aarch64.tar.gz
+
           echo ""
-          echo "=== 检查下载文件 ==="
+          echo "=== 检查提取文件 ==="
           echo "x86_64 目录:"
           ls -la mosdns_x86_64/
           echo ""
