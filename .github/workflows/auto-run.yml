@@ -1,8 +1,6 @@
 name: 触发所有工作流并统一收集
 
 on:
-  schedule:
-    - cron: '0 */12 * * *'
   workflow_dispatch:
 
 permissions:
