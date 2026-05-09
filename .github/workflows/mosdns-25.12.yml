@@ -42,10 +42,14 @@ jobs:
           echo "解压 x86_64 包..."
           tar -xzf mosdns_x86_64.tar.gz -C mosdns_x86_64/
           rm mosdns_x86_64.tar.gz
+          find mosdns_x86_64/ -name "*.apk" -exec mv {} mosdns_x86_64/ \;
+          find mosdns_x86_64/ -type d ! -path "mosdns_x86_64/" -exec rm -rf {} + 2>/dev/null || true
 
           echo "解压 aarch64 包..."
           tar -xzf mosdns_aarch64.tar.gz -C mosdns_aarch64_cortex-a53/
           rm mosdns_aarch64.tar.gz
+          find mosdns_aarch64_cortex-a53/ -name "*.apk" -exec mv {} mosdns_aarch64_cortex-a53/ \;
+          find mosdns_aarch64_cortex-a53/ -type d ! -path "mosdns_aarch64_cortex-a53/" -exec rm -rf {} + 2>/dev/null || true
 
           echo ""
           echo "=== 检查提取文件 ==="
