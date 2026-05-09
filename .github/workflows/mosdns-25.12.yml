@@ -71,7 +71,7 @@ jobs:
           apk update
           echo ""
           echo "开始安装 APK 包..."
-          for f in luci-app-mosdns*.apk luci-i18n-mosdns*.apk mosdns*.apk v2dat*.apk v2ray-geoip*.apk v2ray-geosite*.apk; do
+          for f in mosdns*.apk v2dat*.apk v2ray-geoip*.apk v2ray-geosite*.apk luci-i18n-mosdns*.apk luci-app-mosdns*.apk; do
             if [ -f "$f" ]; then
               echo "安装: $f"
               apk add --allow-untrusted "$f" || echo "安装失败: $f"
