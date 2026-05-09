@@ -67,7 +67,7 @@ jobs:
           cat << 'EOF' > mosdns_x86_64/install.sh
           #!/bin/sh
           apk update
-          apk add --allow-untrusted *.apk
+          for f in *.apk; do apk add --allow-untrusted "$f"; done
           EOF
           chmod +x mosdns_x86_64/install.sh
           cp mosdns_x86_64/install.sh mosdns_aarch64_cortex-a53/install.sh
