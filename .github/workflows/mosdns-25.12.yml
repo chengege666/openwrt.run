@@ -67,7 +67,9 @@ jobs:
           cat << 'EOF' > mosdns_x86_64/install.sh
           #!/bin/sh
           apk update
-          for f in *.apk; do apk add --allow-untrusted "$f"; done
+          for f in luci-app-mosdns*.apk luci-i18n-mosdns*.apk mosdns*.apk v2dat*.apk v2ray-geoip*.apk v2ray-geosite*.apk; do
+            [ -f "$f" ] && apk add --allow-untrusted "$f"
+          done
           EOF
           chmod +x mosdns_x86_64/install.sh
           cp mosdns_x86_64/install.sh mosdns_aarch64_cortex-a53/install.sh
